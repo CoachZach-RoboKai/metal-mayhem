@@ -266,6 +266,7 @@
     function openExport(){}
     function openImport(){}
     function loadBotFromCode(){}
+    function buildHUD(){}
 </script>
 
 <div id="game-container">
@@ -710,6 +711,7 @@
     window.openExport = openExport;
     window.openImport = openImport;
     window.loadBotFromCode = loadBotFromCode;
+    window.buildHUD = buildHUD;
 
     // --- Networking State ---
     let socket = null;
@@ -1051,34 +1053,13 @@
     }
 
     const botTypes = {
-        spinner: {
-            name: "SPINNER", radius: 35, mass: 1.1, accel: 4000, maxSpeed: 260, turnSpeed: 6.0, hp: 110, color: '#4b5563', highlight: '#eab308',
-            abilityCooldown: 3500, abilityDuration: 2000
-        },
-        flipper: {
-            name: "FLIPPER", radius: 35, mass: 1.1, accel: 5200, maxSpeed: 300, turnSpeed: 6.5, hp: 90, color: '#4b5563', highlight: '#3b82f6',
-            abilityCooldown: 2000, abilityDuration: 300
-        },
-        grappler: {
-            name: "GRAPPLER", radius: 35, mass: 1.6, accel: 4200, maxSpeed: 240, turnSpeed: 5.0, hp: 130, color: '#4b5563', highlight: '#9333ea',
-            abilityCooldown: 2500, abilityDuration: 1500
-        },
-        hammer: {
-            name: "HAMMER", radius: 35, mass: 2.0, accel: 3000, maxSpeed: 190, turnSpeed: 3.2, hp: 160, color: '#4b5563', highlight: '#10b981',
-            abilityCooldown: 3500, abilityDuration: 400
-        },
-        zapper: {
-            name: "ZAPPER", radius: 35, mass: 0.9, accel: 4800, maxSpeed: 280, turnSpeed: 6.0, hp: 85, color: '#4b5563', highlight: '#06b6d4',
-            abilityCooldown: 3000, abilityDuration: 1000
-        },
-        scorcher: {
-            name: "SCORCHER", radius: 35, mass: 1.5, accel: 3500, maxSpeed: 200, turnSpeed: 4.0, hp: 140, color: '#4b5563', highlight: '#f97316',
-            abilityCooldown: 3500, abilityDuration: 2500
-        },
-        sawblade: {
-            name: "SAWBLADE", radius: 35, mass: 1.3, accel: 4200, maxSpeed: 230, turnSpeed: 5.5, hp: 120, color: '#4b5563', highlight: '#e11d48',
-            abilityCooldown: 3000, abilityDuration: 1800
-        }
+        spinner: { name: "SPINNER", radius: 35, mass: 1.1, accel: 4000, maxSpeed: 260, turnSpeed: 6.0, hp: 115, color: '#4b5563', highlight: '#eab308', abilityCooldown: 3500, abilityDuration: 2000 },
+        flipper: { name: "FLIPPER", radius: 35, mass: 1.1, accel: 5200, maxSpeed: 280, turnSpeed: 6.5, hp: 105, color: '#4b5563', highlight: '#3b82f6', abilityCooldown: 2000, abilityDuration: 300 },
+        grappler: { name: "GRAPPLER", radius: 35, mass: 1.6, accel: 4200, maxSpeed: 240, turnSpeed: 5.0, hp: 125, color: '#4b5563', highlight: '#9333ea', abilityCooldown: 2500, abilityDuration: 1500 },
+        hammer: { name: "HAMMER", radius: 35, mass: 2.0, accel: 3500, maxSpeed: 225, turnSpeed: 4.2, hp: 135, color: '#4b5563', highlight: '#10b981', abilityCooldown: 3500, abilityDuration: 400 },
+        zapper: { name: "ZAPPER", radius: 35, mass: 0.9, accel: 4800, maxSpeed: 270, turnSpeed: 6.0, hp: 100, color: '#4b5563', highlight: '#06b6d4', abilityCooldown: 3000, abilityDuration: 1000 },
+        scorcher: { name: "SCORCHER", radius: 35, mass: 1.5, accel: 3800, maxSpeed: 235, turnSpeed: 4.0, hp: 125, color: '#4b5563', highlight: '#f97316', abilityCooldown: 3500, abilityDuration: 2500 },
+        sawblade: { name: "SAWBLADE", radius: 35, mass: 1.3, accel: 4200, maxSpeed: 245, turnSpeed: 5.5, hp: 115, color: '#4b5563', highlight: '#e11d48', abilityCooldown: 3000, abilityDuration: 1800 }
     };
 
     // --- Offline Audio Engine ---
@@ -1486,20 +1467,20 @@
             
             if (this.abilityTimer > 0 && (!this.isGrappled || this.shieldTimer > 0)) {
                 if (this.type === 'spinner') { let spinSpeed = 25; this.spinAngle += spinSpeed * dt; } 
-                else if (this.type === 'grappler') { if (this.grappleTarget) { let blocked = this.grappleTarget.takeDamage(25 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); spawnSparks(this.grappleTarget.x, this.grappleTarget.y, this.grappleTarget.z, '#ffaa00', 1); } } 
+                else if (this.type === 'grappler') { if (this.grappleTarget) { let blocked = this.grappleTarget.takeDamage(22 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); spawnSparks(this.grappleTarget.x, this.grappleTarget.y, this.grappleTarget.z, '#ffaa00', 1); } } 
                 else if (this.type === 'scorcher') {
                     if (Math.random() < 0.8) spawnFire(this.x + Math.cos(this.angle)*this.radius, this.y + Math.sin(this.angle)*this.radius, this.z, this.angle);
                     bots.forEach(b => { if (b !== this && b.hp > 0 && b.team !== this.team) { let dist = Math.hypot(b.x - this.x, b.y - this.y); let angleDiff = Math.abs(angleDiffRad(this.angle, Math.atan2(b.y - this.y, b.x - this.x)));
-                        if (dist < this.radius + b.radius + (100 * this.scaleMult) && angleDiff < Math.PI / 3) { b.takeDamage(35 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); if (Math.random() < 0.1) spawnSparks(b.x, b.y, b.z, '#f97316', 1); }
+                        if (dist < this.radius + b.radius + (100 * this.scaleMult) && angleDiff < Math.PI / 3) { b.takeDamage(26 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); if (Math.random() < 0.1) spawnSparks(b.x, b.y, b.z, '#f97316', 1); }
                     }});
                 } else if (this.type === 'zapper') {
-                    if (!this.zapTarget || this.zapTarget.hp <= 0 || Math.hypot(this.zapTarget.x - this.x, this.zapTarget.y - this.y) > (180 * this.scaleMult)) {
-                        let best = null; let bestD = 180 * this.scaleMult;
+                    if (!this.zapTarget || this.zapTarget.hp <= 0 || Math.hypot(this.zapTarget.x - this.x, this.zapTarget.y - this.y) > (150 * this.scaleMult)) {
+                        let best = null; let bestD = 150 * this.scaleMult;
                         bots.forEach(b => { if (b !== this && b.hp > 0 && b.team !== this.team) { let d = Math.hypot(b.x - this.x, b.y - this.y); let aDiff = Math.abs(angleDiffRad(this.angle, Math.atan2(b.y - this.y, b.x - this.x))); if (d < bestD && aDiff < Math.PI / 4) { bestD = d; best = b; } } });
                         this.zapTarget = best;
                     }
                     if (this.zapTarget) {
-                        let blocked = this.zapTarget.takeDamage(45 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); 
+                        let blocked = this.zapTarget.takeDamage(35 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); 
                         if (!blocked) { let slowFactor = Math.pow(0.80, dt * 60); this.zapTarget.vx *= slowFactor; this.zapTarget.vy *= slowFactor; }
                         if (Math.random() < 0.2) spawnSparks(this.zapTarget.x, this.zapTarget.y, this.zapTarget.z, '#06b6d4', 2);
                     }
@@ -1509,7 +1490,7 @@
                         if (b !== this && b.hp > 0 && b.team !== this.team) {
                             let dist = Math.hypot(b.x - this.x, b.y - this.y); let angleDiff = Math.abs(angleDiffRad(this.angle, Math.atan2(b.y - this.y, b.x - this.x)));
                             if (dist < this.radius + b.radius + (45 * this.scaleMult) && angleDiff < Math.PI / 4) {
-                                let blocked = b.takeDamage(50 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); hitTarget = true; if (Math.random() < 0.2) spawnSparks(b.x, b.y, b.z, '#ffffff', 2);
+                                let blocked = b.takeDamage(38 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); hitTarget = true; if (Math.random() < 0.2) spawnSparks(b.x, b.y, b.z, '#ffffff', 2);
                                 if (!blocked) { let pullForce = (1200 / b.mass) * dt * (this.isBoss ? 2 : 1) * this.powerMult; b.vx -= Math.cos(this.angle) * pullForce; b.vy -= Math.sin(this.angle) * pullForce; }
                             }
                         }
@@ -1550,7 +1531,7 @@
             if (this.type === 'flipper') { 
                 if (sfx.ctx) sfx.abilityFlipper(); 
                 if (dist < this.radius + target.radius + 20 && angleDiff < Math.PI / 4) { 
-                    cameraShake = 20 * power; let blocked = target.takeDamage(20 * power * bossMult * this.powerMult, this); 
+                    cameraShake = 20 * power; let blocked = target.takeDamage(28 * power * bossMult * this.powerMult, this); 
                     if (!blocked) { let pushPower = (1800 / target.mass) * power * bossMult * this.powerMult; target.vx += Math.cos(this.angle) * pushPower; target.vy += Math.sin(this.angle) * pushPower; target.vz = (1600 / target.mass) * power * this.powerMult; } else if (sfx.ctx) sfx.wallBump();
                     spawnSparks(target.x, target.y, target.z, '#ffffff', Math.floor(30 * power)); 
                 } 
@@ -1560,7 +1541,7 @@
                 if (dist < this.radius + target.radius + 40 && angleDiff < Math.PI / 4) {
                     setTimeout(() => { 
                         if (target.hp <= 0) return; 
-                        cameraShake = 35 * power; let blocked = target.takeDamage(45 * power * bossMult * this.powerMult, this); 
+                        cameraShake = 35 * power; let blocked = target.takeDamage(40 * power * bossMult * this.powerMult, this); 
                         if (!blocked) { let pushPower = (2500 / target.mass) * power * bossMult * this.powerMult; target.vx += Math.cos(this.angle) * pushPower; target.vy += Math.sin(this.angle) * pushPower; target.vz = (-800 / target.mass) * power * this.powerMult; } else if (sfx.ctx) sfx.wallBump();
                         spawnSparks(target.x, target.y, target.z, this.highlight, Math.floor(40 * power)); 
                     }, 150);
@@ -1676,7 +1657,7 @@
                     if (dist < bot.radius + p.radius) {
                         grabbed = true; if(sfx.ctx) sfx.powerup(); spawnSparks(p.x, p.y, 0, '#ffffff', 15);
                         if (bot.playerId === 1 || (isCoop && bot.playerId === 2)) addScore(50);
-                        if (p.type === 'health') { bot.hp = Math.min(bot.maxHp, bot.hp + 20); if(bot.uiElems) { bot.uiElems.healthFill.style.backgroundColor = '#ef4444'; let origColor = bot.team === 0 ? '#00ffaa' : '#ff3333'; setTimeout(() => { if(bot.uiElems) bot.uiElems.healthFill.style.backgroundColor = origColor; }, 300); } }
+                        if (p.type === 'health') { bot.hp = Math.min(bot.maxHp, bot.hp + 15); if(bot.uiElems) { bot.uiElems.healthFill.style.backgroundColor = '#ef4444'; let origColor = bot.team === 0 ? '#00ffaa' : '#ff3333'; setTimeout(() => { if(bot.uiElems) bot.uiElems.healthFill.style.backgroundColor = origColor; }, 300); } }
                         if (p.type === 'speed') bot.speedTimer = 5000; if (p.type === 'shield') bot.shieldTimer = 5000; if (p.type === 'cooldown') bot.bankedAbilities++; break;
                     }
                 }
@@ -1723,24 +1704,35 @@
 
     function handleWeaponDamage(attacker, defender, nx, ny, dt) {
         if (attacker.team === defender.team) return; if (attacker.type === 'spinner' && attacker.isGrappled) return;
-        let baseDmg = attacker.type === 'spinner' ? (attacker.abilityTimer > 0 ? 65 : 25) : 8; if (attacker.isBoss) baseDmg *= 2;
+        let baseDmg = attacker.type === 'spinner' ? (attacker.abilityTimer > 0 ? 40 : 15) : 8; if (attacker.isBoss) baseDmg *= 2;
         defender.takeDamage(baseDmg * dt * attacker.powerMult, attacker);
         if (Math.random() < 0.05) spawnSparks(defender.x, defender.y, defender.z, attacker.type === 'spinner' ? defender.highlight : '#aaaaaa', 1);
     }
 
     function runAI(ai, dt) {
         if (ai.name === "DUMMY") { ai.update(dt, { w: false, a: false, s: false, d: false, space: false }); return; }
+        
         let target = null; let minDist = Infinity;
-        for (let b of bots) { if (b.team !== ai.team && b.hp > 0) { let d = Math.hypot(b.x - ai.x, b.y - ai.y); if (d < minDist) { minDist = d; target = b; } } }
         let inputs = { w: false, a: false, s: false, d: false, space: false };
+        
+        // 3-Minute CPU Meltdown: After 180s, CPU hallucinates and targets hazards 50% of the time!
+        if (gameTime > 180 && Math.floor(gameTime / 2) % 2 === 0) {
+            hazards.forEach(h => { let d = Math.hypot(h.x - ai.x, h.y - ai.y); if (d < minDist) { minDist = d; target = h; } });
+        } else {
+            for (let b of bots) { if (b.team !== ai.team && b.hp > 0) { let d = Math.hypot(b.x - ai.x, b.y - ai.y); if (d < minDist) { minDist = d; target = b; } } }
+        }
+
         if (target) {
             let dx = target.x - ai.x; let dy = target.y - ai.y; let targetAngle = Math.atan2(dy, dx); let angleDiff = angleDiffRad(ai.angle, targetAngle);
             if (angleDiff > 0.1) inputs.d = true; else if (angleDiff < -0.1) inputs.a = true;
             if (Math.abs(angleDiff) < Math.PI / 1.5) inputs.w = true; else inputs.s = true;
             let spaceReady = false; if (ai.abilityTimer === 0 && !ai.isGrappled) { if (ai.charge >= 0.33 || ai.bankedAbilities > 0) spaceReady = true; }
+            
             if (spaceReady) {
-                let range = (ai.type === 'flipper' || ai.type === 'grappler') ? 60 : (ai.type === 'hammer' ? 60 : (ai.type === 'zapper' ? 180 : (ai.type === 'scorcher' ? 120 : 70)));
+                let range = (ai.type === 'flipper' || ai.type === 'grappler') ? 60 : (ai.type === 'hammer' ? 60 : (ai.type === 'zapper' ? 150 : (ai.type === 'scorcher' ? 120 : 70)));
                 range *= ai.scaleMult; let cone = ai.type === 'hammer' ? 0.6 : (ai.type === 'zapper' ? 0.5 : (ai.type === 'sawblade' ? 0.6 : 1.0));
+                
+                // target.radius exists for both bots AND hazards, meaning they will absolutely use their weapons on the hazards!
                 if (minDist < ai.radius + target.radius + range && Math.abs(angleDiff) < cone) { inputs.space = true; }
             }
         }
@@ -1795,8 +1787,11 @@
     function startNetworkGame(role) {
         if (!socket) { alert("Network connection failed!"); return; }
         
-	setMode('pvp');	
-	isNetworkGame = true; networkRole = role;
+        // Force the engine into PVP mode immediately so it doesn't default to 1v1!
+        setMode('pvp'); 
+        
+        isNetworkGame = true; 
+        networkRole = role;
         document.getElementById('lobby-modal').classList.remove('hidden');
         
         if (role === 'host') {
@@ -1845,24 +1840,6 @@
         isNetworkGame = false; networkRole = null; currentRoom = '';
         document.getElementById('lobby-modal').classList.add('hidden');
     }
-
-function buildHUD() {
-    ui.team0Hud.innerHTML = ''; ui.team1Hud.innerHTML = '';
-    if (gameMode === 'endless') { ui.vsText.classList.add('hidden'); ui.waveDisplay.classList.remove('hidden'); } 
-    else if (gameMode === 'tutorial') { ui.vsText.classList.add('hidden'); ui.waveDisplay.classList.add('hidden'); }
-    else { ui.vsText.classList.remove('hidden'); ui.waveDisplay.classList.add('hidden'); }
-    
-    if (gameMode === 'pvp' || gameMode === 'tutorial') ui.scoreDisplay.classList.add('hidden'); else ui.scoreDisplay.classList.remove('hidden');
-
-    bots.forEach(bot => {
-        if (bot.hp <= 0 && bot.playerId === 0 && (gameMode === 'endless' || gameMode === 'tutorial')) return;
-        let container = document.createElement('div'); container.className = 'bot-hud';
-        let nameClass = bot.team === 0 ? 'text-cyan-400' : 'text-red-500 team-2-name';
-        container.innerHTML = `<div class="player-name ${nameClass}">${bot.name} <span id="bank-${bot.id}" class="text-yellow-400 ml-1"></span></div><div class="health-bar-bg"><div class="health-bar-fill ${bot.team === 0 ? 'team-1-fill' : 'team-2-fill'}" id="health-${bot.id}"></div></div><div class="ability-cd ${bot.team === 0 ? 'team-1-cd' : 'team-2-cd'}" id="cd-${bot.id}"></div>`;
-        if (bot.team === 0) ui.team0Hud.appendChild(container); else ui.team1Hud.appendChild(container);
-        bot.uiElems = { container: container, healthFill: container.querySelector(`#health-${bot.id}`), cdFill: container.querySelector(`#cd-${bot.id}`), bankText: container.querySelector(`#bank-${bot.id}`) };
-    });
-}
 
     function startGame(playerType, forceNetworkStart = false) {
         if (!forceNetworkStart && (gameMode === 'pvp' || isCoop) && !pvpP1Choice && !isNetworkGame) {
@@ -1952,7 +1929,19 @@ function buildHUD() {
                 gameTime += dt; let mins = Math.floor(gameTime / 60).toString().padStart(2, '0'); let secs = Math.floor(gameTime % 60).toString().padStart(2, '0'); ui.battleTimer.innerText = `${mins}:${secs}`;
                 if (gameMode === 'endless') addScore(dt * 10);
                 
-                if (gameMode !== 'tutorial') { powerupSpawnTimer -= dt; if (powerupSpawnTimer <= 0) { let types = ['health', 'speed', 'shield', 'cooldown']; let type = types[Math.floor(Math.random() * types.length)]; let px = 100 + Math.random() * (canvas.width - 200); let py = 100 + Math.random() * (canvas.height - 200); powerups.push(new Powerup(px, py, type)); let timeFactor = gameMode === 'endless' ? Math.max(0, gameTime / 100) : Math.max(0, gameTime / 80); powerupSpawnTimer = Math.max(0.5, 4.0 - timeFactor) + Math.random() * 1.5; } }
+                if (gameMode !== 'tutorial') { 
+                    powerupSpawnTimer -= dt; 
+                    if (powerupSpawnTimer <= 0) { 
+                        let types = ['health', 'speed', 'shield', 'cooldown']; 
+                        let type = types[Math.floor(Math.random() * types.length)]; 
+                        let px = 100 + Math.random() * (canvas.width - 200); 
+                        let py = 100 + Math.random() * (canvas.height - 200); 
+                        powerups.push(new Powerup(px, py, type)); 
+                        let timeFactor = gameMode === 'endless' ? Math.max(0, gameTime / 100) : Math.max(0, gameTime / 80); 
+                        powerupSpawnTimer = Math.max(5.0, 10.0 - timeFactor) + Math.random() * 4.0; 
+                    } 
+                }
+                
                 for (let i = powerups.length - 1; i >= 0; i--) if (!powerups[i].update(dt)) powerups.splice(i, 1);
                 for (let i = scraps.length - 1; i >= 0; i--) if (!scraps[i].update(dt, bots)) scraps.splice(i, 1);
                 
