@@ -251,6 +251,9 @@
     function setMode(){}
     function startGame(){}
     function startNetworkGame(){}
+    function joinRoomSubmit(){}
+    function startHostMatch(){}
+    function cancelNetwork(){}
     function showLeaderboard(){}
     function closeLeaderboard(){}
     function setLbMode(){}
@@ -631,6 +634,25 @@
         </button>
     </div>
 
+    <!-- Network Lobby Modal -->
+    <div id="lobby-modal" class="hidden overlay z-[80] bg-black/95">
+        <h2 id="lobby-title" class="text-3xl sm:text-4xl text-yellow-400 mb-4 font-bold" style="text-shadow: 2px 2px 0 #000;">NETWORK LOBBY</h2>
+        <p id="lobby-status" class="text-[10px] sm:text-sm text-gray-300 mb-6">Waiting for Host...</p>
+        
+        <div id="host-ui" class="hidden flex flex-col items-center gap-4 w-full">
+            <div class="text-lg sm:text-2xl text-cyan-400 font-bold mb-2">ROOM CODE: <span id="room-code-display" class="text-white"></span></div>
+            <p class="text-[8px] sm:text-[10px] text-gray-400 mb-4">Select your game mode and bot in the background, then wait for Player 2 to connect.</p>
+            <button onclick="sfx.click(); startHostMatch()" id="start-match-btn" class="px-6 py-3 bg-green-600 text-white border-2 border-green-400 hover:bg-green-500 transition-colors hidden text-sm sm:text-base">START MATCH</button>
+        </div>
+
+        <div id="join-ui" class="hidden flex flex-col items-center gap-4 w-full max-w-[300px]">
+            <input type="text" id="join-code-input" maxlength="4" placeholder="4-LETTER CODE" class="bg-gray-900 border-2 border-gray-500 text-white px-4 py-3 text-center text-sm sm:text-xl uppercase focus:border-cyan-400 outline-none w-full font-[Press_Start_2P]">
+            <button onclick="sfx.click(); joinRoomSubmit()" class="px-6 py-3 bg-blue-600 text-white border-2 border-blue-400 w-full hover:bg-blue-500 transition-colors text-sm sm:text-base">JOIN ROOM</button>
+        </div>
+        
+        <button onclick="sfx.click(); cancelNetwork()" class="mt-8 px-6 py-2 bg-red-800 text-white border-2 border-red-600 hover:bg-red-700 transition-colors text-[10px] sm:text-xs">CANCEL</button>
+    </div>
+
     <!-- Leaderboard Screen -->
     <div id="leaderboard-screen" class="overlay hidden">
         <h2 class="text-2xl sm:text-4xl text-yellow-400 mb-2 mt-10" style="text-shadow: 3px 3px 0 #d91c1c;">LEADERBOARDS</h2>
@@ -674,6 +696,9 @@
     window.setMode = setMode;
     window.startGame = startGame;
     window.startNetworkGame = startNetworkGame;
+    window.joinRoomSubmit = joinRoomSubmit;
+    window.startHostMatch = startHostMatch;
+    window.cancelNetwork = cancelNetwork;
     window.showMenu = showMenu;
     window.showLeaderboard = showLeaderboard;
     window.closeLeaderboard = closeLeaderboard;
@@ -690,17 +715,18 @@
     let socket = null;
     let isNetworkGame = false;
     let networkRole = null;
+    let currentRoom = '';
     let remoteInputs = { w: false, a: false, s: false, d: false, space: false, useMouse: false, mouseX: 0, mouseY: 0 };
     let joinerStateData = null;
 
     document.addEventListener("DOMContentLoaded", () => {
         if (typeof io !== 'undefined') {
             socket = io();
-            socket.on('joinerStateSync', (data) => { 
-                if (networkRole === 'joiner') joinerStateData = data; 
+            socket.on('joinerStateSync', (state) => { 
+                if (networkRole === 'joiner') joinerStateData = state; 
             });
-            socket.on('hostReceiveInput', (data) => { 
-                if (networkRole === 'host') remoteInputs = data; 
+            socket.on('hostReceiveInput', (inputs) => { 
+                if (networkRole === 'host') remoteInputs = inputs; 
             });
         }
     });
@@ -1768,45 +1794,55 @@
 
     function startNetworkGame(role) {
         if (!socket) { alert("Network connection failed!"); return; }
-        isNetworkGame = true;
-        networkRole = role;
-        gameMode = 'pvp';
-
+        isNetworkGame = true; networkRole = role;
+        document.getElementById('lobby-modal').classList.remove('hidden');
+        
         if (role === 'host') {
-            let p1Type = pvpP1Choice || 'random';
-            if (p1Type === 'random') {
-                let types = Object.keys(botTypes).filter(t => t !== 'custom');
-                p1Type = types[Math.floor(Math.random() * types.length)];
-            }
-            pvpP1Choice = p1Type; 
-            startGame('random', true); 
+            currentRoom = Math.random().toString(36).substring(2, 6).toUpperCase();
+            document.getElementById('host-ui').classList.remove('hidden');
+            document.getElementById('join-ui').classList.add('hidden');
+            document.getElementById('room-code-display').innerText = currentRoom;
+            document.getElementById('lobby-status').innerText = "Waiting for Player 2 to join...";
+            socket.emit('createRoom', currentRoom);
+            
+            socket.on('playerJoined', () => {
+                document.getElementById('lobby-status').innerText = "Player 2 Connected!";
+                document.getElementById('start-match-btn').classList.remove('hidden');
+            });
         } else {
-            // Joiner Launch - Skips setup and waits for Host data
-            sfx.init(); sfx.startBGM(); sfx.speak("Joined Network!"); 
-            gameState = 'PLAYING'; 
-            ui.menu.classList.add('hidden'); ui.hud.classList.remove('hidden'); ui.instructions.classList.remove('hidden'); ui.gameOver.classList.add('hidden');
-            bots = []; 
-            buildHUD();
+            document.getElementById('join-ui').classList.remove('hidden');
+            document.getElementById('host-ui').classList.add('hidden');
+            document.getElementById('lobby-status').innerText = "Enter the Host's Room Code:";
         }
     }
 
-function buildHUD() {
-    ui.team0Hud.innerHTML = ''; ui.team1Hud.innerHTML = '';
-    if (gameMode === 'endless') { ui.vsText.classList.add('hidden'); ui.waveDisplay.classList.remove('hidden'); } 
-    else if (gameMode === 'tutorial') { ui.vsText.classList.add('hidden'); ui.waveDisplay.classList.add('hidden'); }
-    else { ui.vsText.classList.remove('hidden'); ui.waveDisplay.classList.add('hidden'); }
-    
-    if (gameMode === 'pvp' || gameMode === 'tutorial') ui.scoreDisplay.classList.add('hidden'); else ui.scoreDisplay.classList.remove('hidden');
+    function joinRoomSubmit() {
+        currentRoom = document.getElementById('join-code-input').value.toUpperCase();
+        if (currentRoom.length !== 4) return;
+        socket.emit('joinRoom', currentRoom);
+        document.getElementById('lobby-status').innerText = "Connected! Waiting for Host to start...";
+        document.getElementById('join-ui').classList.add('hidden');
+        
+        socket.once('joinerStateSync', (state) => {
+            document.getElementById('lobby-modal').classList.add('hidden');
+            sfx.init(); sfx.startBGM(); sfx.speak("Joined Network!"); 
+            gameState = 'PLAYING'; ui.menu.classList.add('hidden'); ui.hud.classList.remove('hidden'); ui.instructions.classList.remove('hidden'); ui.gameOver.classList.add('hidden');
+            bots = []; buildHUD(); joinerStateData = state;
+        });
+    }
 
-    bots.forEach(bot => {
-        if (bot.hp <= 0 && bot.playerId === 0 && (gameMode === 'endless' || gameMode === 'tutorial')) return;
-        let container = document.createElement('div'); container.className = 'bot-hud';
-        let nameClass = bot.team === 0 ? 'text-cyan-400' : 'text-red-500 team-2-name';
-        container.innerHTML = `<div class="player-name ${nameClass}">${bot.name} <span id="bank-${bot.id}" class="text-yellow-400 ml-1"></span></div><div class="health-bar-bg"><div class="health-bar-fill ${bot.team === 0 ? 'team-1-fill' : 'team-2-fill'}" id="health-${bot.id}"></div></div><div class="ability-cd ${bot.team === 0 ? 'team-1-cd' : 'team-2-cd'}" id="cd-${bot.id}"></div>`;
-        if (bot.team === 0) ui.team0Hud.appendChild(container); else ui.team1Hud.appendChild(container);
-        bot.uiElems = { container: container, healthFill: container.querySelector(`#health-${bot.id}`), cdFill: container.querySelector(`#cd-${bot.id}`), bankText: container.querySelector(`#bank-${bot.id}`) };
-    });
-}
+    function startHostMatch() {
+        document.getElementById('lobby-modal').classList.add('hidden');
+        let p1Type = pvpP1Choice || 'random';
+        if (p1Type === 'random') { let types = Object.keys(botTypes).filter(t => t !== 'custom'); p1Type = types[Math.floor(Math.random() * types.length)]; }
+        pvpP1Choice = p1Type; 
+        startGame('random', true); 
+    }
+
+    function cancelNetwork() {
+        isNetworkGame = false; networkRole = null; currentRoom = '';
+        document.getElementById('lobby-modal').classList.add('hidden');
+    }
 
     function startGame(playerType, forceNetworkStart = false) {
         if (!forceNetworkStart && (gameMode === 'pvp' || isCoop) && !pvpP1Choice && !isNetworkGame) {
@@ -1846,7 +1882,7 @@ function buildHUD() {
 
             // --- JOINER LOGIC (Client-Side State Mirror) ---
             if (isNetworkGame && networkRole === 'joiner') {
-                if (socket) socket.emit('joinerInput', getPlayerInputs(p1ControlScheme)); 
+                if (socket) socket.emit('joinerInput', { roomCode: currentRoom, inputs: getPlayerInputs(p1ControlScheme) }); 
 
                 if (joinerStateData) {
                     if (joinerStateData.isGameOver) { endGame(joinerStateData.team0Won); joinerStateData = null; return; }
@@ -1926,7 +1962,7 @@ function buildHUD() {
                         hazards: hazards.map(h => ({ active: h.active, angle: h.angle, spinSpeed: h.spinSpeed })),
                         powerups: powerups.map(p => ({ x: p.x, y: p.y, type: p.type, bob: p.bob }))
                     };
-                    socket.emit('hostStateUpdate', stateData);
+                    socket.emit('hostStateUpdate', { roomCode: currentRoom, state: stateData });
                 }
             }
         }
@@ -1954,7 +1990,7 @@ function buildHUD() {
         document.getElementById('score-form').classList.add('hidden'); document.getElementById('score-success').classList.add('hidden');
 
         if (isNetworkGame && networkRole === 'host' && socket) {
-            socket.emit('hostStateUpdate', { isGameOver: true, team0Won: team0Won });
+            socket.emit('hostStateUpdate', { roomCode: currentRoom, state: { isGameOver: true, team0Won: team0Won } });
         }
         
         let botsDefeated = 0;
@@ -1982,7 +2018,7 @@ function buildHUD() {
         document.getElementById('exit-btn').classList.add('hidden'); document.getElementById('tutorial-text').classList.add('hidden'); document.getElementById('tutorial-text').className = "hidden absolute top-[15%] left-1/2 transform -translate-x-1/2 w-full text-center text-xl sm:text-2xl md:text-3xl text-yellow-300 z-20 pointer-events-none transition-all duration-300";
         tutorialPhase = 0; ctx.clearRect(0, 0, canvas.width, canvas.height); particles = []; scraps = []; 
         document.getElementById('bot-select-title').innerText = (gameMode === 'pvp' || isCoop) ? "P1: SELECT YOUR BOT" : "SELECT YOUR BOT"; pvpP1Choice = null;
-        isNetworkGame = false; networkRole = null;
+        isNetworkGame = false; networkRole = null; currentRoom = '';
     }
 
     requestAnimationFrame(gameLoop);

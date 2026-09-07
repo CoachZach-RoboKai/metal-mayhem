@@ -7,17 +7,12 @@ const path = require('path');
 const app = express();
 const server = http.createServer(app);
 
-// 1. Tell Socket.IO to accept connections from any local origin
 const io = new Server(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+    cors: { origin: "*", methods: ["GET", "POST"] }
 });
 
 const port = 80;
 
-// 2. Force Express to allow Private Network Access for Chromium browsers
 app.use((req, res, next) => {
     res.header("Access-Control-Allow-Origin", "*");
     res.header("Access-Control-Allow-Private-Network", "true");
@@ -27,7 +22,6 @@ app.use((req, res, next) => {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize Local Database (Leave everything below this point exactly the same!)
 const db = new Database('./leaderboard.db');
 console.log("Local better-sqlite3 database active.");
 
@@ -42,18 +36,26 @@ db.exec(`CREATE TABLE IF NOT EXISTS scores (
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 )`);
 
-// Real-Time Socket.IO Relay
 io.on('connection', (socket) => {
-    console.log(`New Chromebook connected: ${socket.id}`);
+    console.log(`Chromebook connected: ${socket.id}`);
 
-    // The Host sends the master game state, relay it directly to the Joiner
-    socket.on('hostStateUpdate', (data) => {
-        socket.broadcast.emit('joinerStateSync', data);
+    socket.on('createRoom', (roomCode) => {
+        socket.join(roomCode);
+        console.log(`Host created room: ${roomCode}`);
     });
 
-    // The Joiner sends their keystrokes, relay them directly to the Host
+    socket.on('joinRoom', (roomCode) => {
+        socket.join(roomCode);
+        socket.to(roomCode).emit('playerJoined');
+        console.log(`Joiner entered room: ${roomCode}`);
+    });
+
+    socket.on('hostStateUpdate', (data) => {
+        socket.to(data.roomCode).emit('joinerStateSync', data.state);
+    });
+
     socket.on('joinerInput', (data) => {
-        socket.broadcast.emit('hostReceiveInput', data);
+        socket.to(data.roomCode).emit('hostReceiveInput', data.inputs);
     });
 
     socket.on('disconnect', () => {
@@ -61,31 +63,22 @@ io.on('connection', (socket) => {
     });
 });
 
-// Local Leaderboard APIs
 app.get('/api/leaderboard', (req, res) => {
-    try {
-        const rows = db.prepare(`SELECT * FROM scores ORDER BY score DESC LIMIT 100`).all();
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    try { res.json(db.prepare(`SELECT * FROM scores ORDER BY score DESC LIMIT 100`).all()); } 
+    catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/scores', (req, res) => {
     const { name, gamemode, matchTime, score, botsDefeated } = req.body;
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
     const dayOfWeek = days[new Date().getDay()]; 
-    
     try {
         const stmt = db.prepare(`INSERT INTO scores (name, gamemode, matchTime, score, botsDefeated, dayOfWeek) VALUES (?, ?, ?, ?, ?, ?)`);
         const info = stmt.run(name, gamemode, matchTime, score, botsDefeated, dayOfWeek);
         res.json({ success: true, id: info.lastInsertRowid });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
+    } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Start the combined server
 server.listen(port, () => {
     console.log(`RoboKaiVan Server running at http://metalmayhem.local`);
 });
