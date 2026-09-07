@@ -5,15 +5,29 @@ const Database = require('better-sqlite3');
 const path = require('path');
 
 const app = express();
-// Socket.IO requires a raw HTTP server instance
 const server = http.createServer(app);
-const io = new Server(server);
+
+// 1. Tell Socket.IO to accept connections from any local origin
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
+
 const port = 80;
+
+// 2. Force Express to allow Private Network Access for Chromium browsers
+app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Private-Network", "true");
+    next();
+});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize Local Database
+// Initialize Local Database (Leave everything below this point exactly the same!)
 const db = new Database('./leaderboard.db');
 console.log("Local better-sqlite3 database active.");
 
