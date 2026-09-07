@@ -1,0 +1,1973 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Metal Mayhem - Bot Combat</title>
+    <!-- Tailwind and Socket.IO -->
+    <script src="tailwind.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #111;
+            overflow: hidden;
+            font-family: 'Press Start 2P', 'Courier New', Courier, monospace;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: radial-gradient(circle, #2a2a35 0%, #0d0d12 100%);
+        }
+
+        canvas {
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            border: 4px solid #444;
+            background-color: #222;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.05) 2px, transparent 2px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.05) 2px, transparent 2px);
+            background-size: 50px 50px;
+        }
+
+        /* UI Overlays */
+        .overlay {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 10;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .hidden { display: none !important; }
+
+        .bot-card {
+            position: relative;
+            border: 4px solid #555;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            background: #222;
+            overflow: hidden;
+            width: 100%;
+        }
+        
+        .bot-card:hover {
+            border-color: #ffaa00;
+            transform: translateY(-5px) scale(1.02);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5), 0 0 15px #ffaa00;
+        }
+
+        .bot-stats {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            padding: 10px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 30;
+        }
+        .bot-card:hover .bot-stats {
+            opacity: 1;
+        }
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+            font-size: 8px;
+        }
+        @media (min-width: 640px) {
+            .stat-row { font-size: 10px; margin-bottom: 8px; }
+        }
+        .stat-bar-bg { width: 50px; height: 5px; background: #333; }
+        @media (min-width: 640px) {
+            .stat-bar-bg { width: 60px; height: 6px; }
+        }
+        .stat-bar-fill { height: 100%; background: #eab308; }
+
+        .mode-btn {
+            background: #222;
+            border: 2px solid #555;
+            color: #888;
+            padding: 8px 12px;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        @media (min-width: 640px) {
+            .mode-btn { padding: 10px 20px; font-size: 14px; }
+        }
+        .mode-btn:hover { border-color: #fff; color: #fff; }
+        .mode-btn.selected {
+            background: #eab308;
+            color: #000;
+            border-color: #fff;
+            box-shadow: 0 0 10px #eab308;
+        }
+
+        .mode-btn:disabled {
+            opacity: 0.3;
+            pointer-events: none;
+            border-color: #333;
+            color: #555;
+        }
+
+        #hud {
+            position: absolute;
+            top: 0; left: 0; width: 100%;
+            padding: 10px sm:padding-20px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            z-index: 5;
+            box-sizing: border-box;
+        }
+
+        .team-container {
+            width: 45%;
+            max-width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .health-bar-bg {
+            width: 100%;
+            height: 12px;
+            background: #333;
+            border: 2px solid #fff;
+            position: relative;
+            display: flex;
+        }
+        @media (min-width: 640px) {
+            .health-bar-bg { height: 18px; }
+        }
+
+        .health-bar-fill {
+            height: 100%;
+            width: 100%;
+            transition: width 0.1s linear, background-color 0.2s;
+        }
+        
+        .team-1-fill { background: #00ffaa; }
+        .team-2-fill { background: #ff3333; transform-origin: right; margin-left: auto; }
+
+        .player-name {
+            font-size: 8px;
+            margin-bottom: 2px;
+            text-shadow: 2px 2px 0 #000;
+            color: white;
+        }
+        @media (min-width: 640px) {
+            .player-name { font-size: 10px; margin-bottom: 4px; }
+        }
+        
+        .team-2-name { text-align: right; }
+
+        .ability-cd {
+            height: 4px;
+            width: 100%;
+            margin-top: 2px;
+            transition: width 0.1s linear;
+        }
+        @media (min-width: 640px) {
+            .ability-cd { height: 5px; margin-top: 3px; }
+        }
+        .team-1-cd { background: #00aaff; }
+        .team-2-cd { background: #ff5555; margin-left: auto; }
+
+        .leaderboard-container {
+            width: 100%;
+            max-width: 900px;
+            height: 60vh;
+            overflow-y: auto;
+            overflow-x: auto;
+            background: #111;
+            border: 4px solid #444;
+            padding: 10px;
+            margin-bottom: 20px;
+        }
+        .leaderboard-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 10px;
+            min-width: 600px;
+        }
+        @media (min-width: 640px) {
+            .leaderboard-table { font-size: 12px; }
+        }
+        .leaderboard-table th, .leaderboard-table td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 2px solid #444;
+        }
+        .leaderboard-table th {
+            color: #eab308;
+            border-bottom: 4px solid #eab308;
+        }
+        .leaderboard-table tr:hover { background-color: #222; }
+
+        .instructions {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: rgba(255,255,255,0.5);
+            font-size: 8px;
+            pointer-events: none;
+            text-shadow: 1px 1px 0 #000;
+        }
+        @media (min-width: 640px) {
+            .instructions { font-size: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+<script>
+    var sfx = { 
+        hover: function(){}, click: function(){}, playTone: function(){}, playNoise: function(){}, init: function(){}, speak: function(){}
+    };
+    function toggleMute(){}
+    function setMode(){}
+    function startGame(){}
+    function startNetworkGame(){}
+    function showLeaderboard(){}
+    function closeLeaderboard(){}
+    function setLbMode(){}
+    function submitScore(){}
+    function showMenu(){}
+    function openControls(){}
+    function closeControls(){}
+    function setControlScheme(){}
+    function toggleCoop(){}
+    function openExport(){}
+    function openImport(){}
+    function loadBotFromCode(){}
+</script>
+
+<div id="game-container">
+    
+    <button id="exit-btn" class="hidden absolute top-4 left-4 z-50 text-xs sm:text-sm bg-red-800 border-2 border-red-600 rounded px-4 py-2 text-white hover:border-white transition-colors cursor-pointer" onclick="sfx.click(); showMenu()">EXIT TUTORIAL</button>
+    <button id="mute-btn" class="absolute top-2 right-2 sm:top-4 sm:right-4 z-50 text-xl sm:text-2xl bg-gray-800 border-2 border-gray-600 rounded p-2 text-white hover:border-white transition-colors" onclick="toggleMute()">🔊</button>
+
+    <div id="tutorial-text" class="hidden absolute top-[15%] left-1/2 transform -translate-x-1/2 w-full text-center text-xl sm:text-2xl md:text-3xl text-yellow-300 z-20 pointer-events-none transition-all duration-300" style="text-shadow: 3px 3px 0 #000;"></div>
+
+    <div id="hud" class="hidden">
+        <div id="team-0-hud" class="team-container"></div>
+        <div class="absolute top-2 sm:top-4 left-1/2 transform -translate-x-1/2 flex flex-col items-center pointer-events-none z-10">
+            <div id="score-display" class="text-xl sm:text-2xl text-green-400 font-bold mb-1 hidden" style="text-shadow: 3px 3px 0 #000;">SCORE: 0</div>
+            <div id="wave-display" class="hidden text-xl sm:text-2xl text-yellow-400 font-bold mb-1" style="text-shadow: 3px 3px 0 #000;">WAVE 1</div>
+            <div id="battle-timer" class="text-lg sm:text-xl text-white font-bold mb-1 sm:mb-2" style="text-shadow: 3px 3px 0 #000;">00:00</div>
+            <div id="vs-text" class="text-yellow-400 text-xl sm:text-2xl font-bold" style="text-shadow: 3px 3px 0 #000;">VS</div>
+        </div>
+        <div id="team-1-hud" class="team-container"></div>
+    </div>
+
+    <canvas id="gameCanvas" width="1024" height="768"></canvas>
+
+    <div id="instructions" class="instructions hidden">
+        P1: [WASD+SPACE] &nbsp; | &nbsp; P2: [ARROWS+SHIFT]
+    </div>
+
+    <div id="main-menu" class="overlay">
+        <div class="w-full max-w-6xl flex flex-col items-center mt-10 md:mt-20">
+            <h1 class="text-3xl sm:text-4xl md:text-5xl text-yellow-400 mb-2" style="text-shadow: 4px 4px 0 #d91c1c;">METAL MAYHEM</h1>
+            <p class="text-[10px] sm:text-xs md:text-sm text-gray-300 mb-6 sm:mb-8">LOCAL VAN SERVER</p>
+            
+            <div class="flex gap-2 sm:gap-4 mb-4 flex-wrap justify-center w-full px-2">
+                <button id="btn-tutorial" class="mode-btn text-green-400 border-green-900 hover:border-green-400" onmouseenter="sfx.hover()" onclick="sfx.click(); setMode('tutorial')">TUTORIAL</button>
+                <button id="btn-1v1" class="mode-btn selected" onmouseenter="sfx.hover()" onclick="sfx.click(); setMode('1v1')">1v1 BRAWL</button>
+                <button id="btn-pvp" class="mode-btn text-cyan-400 border-cyan-900 hover:border-cyan-400" onmouseenter="sfx.hover()" onclick="sfx.click(); setMode('pvp')">LOCAL PVP</button>
+                <button id="btn-2v2" class="mode-btn" onmouseenter="sfx.hover()" onclick="sfx.click(); setMode('2v2')">2v2 TEAM</button>
+                <button id="btn-endless" class="mode-btn" onmouseenter="sfx.hover()" onclick="sfx.click(); setMode('endless')">ENDLESS</button>
+                <button id="btn-boss" class="mode-btn text-red-400 border-red-900 hover:border-red-400" onmouseenter="sfx.hover()" onclick="sfx.click(); setMode('boss')">BOSS BATTLE</button>
+                <button id="btn-betheboss" class="mode-btn text-purple-400 border-purple-900 hover:border-purple-400" onmouseenter="sfx.hover()" onclick="sfx.click(); setMode('betheboss')">BE THE BOSS</button>
+            </div>
+
+            <!-- Network Game Buttons -->
+            <div class="flex gap-2 sm:gap-4 mb-4 flex-wrap justify-center w-full px-2 mt-4">
+                <button id="btn-host" class="mode-btn text-pink-400 border-pink-900 hover:border-pink-400" onmouseenter="sfx.hover()" onclick="sfx.click(); startNetworkGame('host')">📡 HOST NETWORK</button>
+                <button id="btn-join" class="mode-btn text-indigo-400 border-indigo-900 hover:border-indigo-400" onmouseenter="sfx.hover()" onclick="sfx.click(); startNetworkGame('joiner')">🌐 JOIN NETWORK</button>
+            </div>
+
+            <div class="flex gap-4 mb-6 sm:mb-8 flex-wrap justify-center w-full px-2">
+                <button onmouseenter="sfx.hover()" onclick="sfx.click(); showLeaderboard()" class="px-4 py-2 sm:px-6 sm:py-2 bg-gray-800 text-white text-[10px] sm:text-xs hover:bg-gray-700 transition-colors border-2 border-gray-500 flex items-center gap-2">
+                    🏆 LEADERBOARDS
+                </button>
+                <button onmouseenter="sfx.hover()" onclick="sfx.click(); openControls()" class="px-4 py-2 sm:px-6 sm:py-2 bg-gray-800 text-white text-[10px] sm:text-xs hover:bg-gray-700 transition-colors border-2 border-gray-500 flex items-center gap-2">
+                    🎮 CONTROLS
+                </button>
+                <button id="btn-coop" onmouseenter="sfx.hover()" onclick="sfx.click(); toggleCoop()" class="px-4 py-2 sm:px-6 sm:py-2 bg-gray-800 text-gray-500 text-[10px] sm:text-xs hover:bg-gray-700 transition-colors border-2 border-gray-600 flex items-center gap-2">
+                    🤝 CO-OP: OFF
+                </button>
+            </div>
+
+            <h2 id="bot-select-title" class="text-sm sm:text-lg md:text-xl mb-4 uppercase tracking-widest text-gray-400">SELECT YOUR BOT</h2>
+            
+            <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-6 w-full px-4 mb-16 justify-items-center">
+                
+                <!-- Core Bots -->
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-yellow-500" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('spinner')">
+                    <div class="bot-stats">
+                        <div class="text-yellow-500 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 70%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 45%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 75%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 45%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <svg viewBox="-50 -50 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(234,179,8,0.5)]">
+                            <defs>
+                                <radialGradient id="motorGrad"><stop offset="0%" stop-color="#555" /><stop offset="100%" stop-color="#111" /></radialGradient>
+                                <linearGradient id="bladeGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#ccc" /><stop offset="50%" stop-color="#777" /><stop offset="100%" stop-color="#444" /></linearGradient>
+                                <filter id="neonCyanSpinner"><feGaussianBlur stdDeviation="3" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                            </defs>
+                            <g transform="rotate(-90)">
+                                <polygon points="11,-26 26,-11 26,11 11,26 -11,26 -26,11 -26,-11 -11,-26" fill="#1a1a24" stroke="#000" stroke-width="2" />
+                                <rect x="14" y="-15" width="8" height="30" fill="#00ffff" filter="url(#neonCyanSpinner)" />
+                                <circle cx="0" cy="0" r="14" fill="url(#motorGrad)" stroke="#000" stroke-width="2" />
+                                <g>
+                                    <animateTransform attributeName="transform" type="rotate" from="0 0 0" to="360 0 0" dur="0.5s" repeatCount="indefinite" />
+                                    <path d="M 10.5,-5 L 35,-8 L 31.5,8 L 10.5,5 Z" fill="url(#bladeGrad)" stroke="#222" stroke-width="2" />
+                                    <path d="M 10.5,-5 L 35,-8 L 31.5,8 L 10.5,5 Z" fill="url(#bladeGrad)" stroke="#222" stroke-width="2" transform="rotate(120)" />
+                                    <path d="M 10.5,-5 L 35,-8 L 31.5,8 L 10.5,5 Z" fill="url(#bladeGrad)" stroke="#222" stroke-width="2" transform="rotate(240)" />
+                                </g>
+                            </g>
+                        </svg>
+                    </div>
+                    <h3 class="text-yellow-500 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">SPINNER</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">High-speed contact specialist.</p>
+                </div>
+
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-blue-500" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('flipper')">
+                    <div class="bot-stats">
+                        <div class="text-blue-500 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 100%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 20%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 50%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 30%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <svg viewBox="-50 -50 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]">
+                            <defs>
+                                <linearGradient id="flipBodyGrad" x1="0%" y1="50%" x2="100%" y2="50%"><stop offset="0%" stop-color="#333" /><stop offset="50%" stop-color="#555" /><stop offset="100%" stop-color="#444" /></linearGradient>
+                                <linearGradient id="wedgeGrad" x1="0%" y1="50%" x2="100%" y2="50%"><stop offset="0%" stop-color="#3b82f6" /><stop offset="100%" stop-color="#fff" /></linearGradient>
+                                <pattern id="hazardStripes" patternUnits="userSpaceOnUse" width="15" height="15" patternTransform="rotate(45)"><rect width="7.5" height="15" fill="rgba(0,0,0,0.4)"/></pattern>
+                            </defs>
+                            <g transform="rotate(-90)">
+                                <rect x="-24.5" y="-35" width="49" height="18" fill="#111" />
+                                <rect x="-24.5" y="17" width="49" height="18" fill="#111" />
+                                <rect x="-28" y="-21" width="56" height="42" fill="url(#flipBodyGrad)" stroke="#111" stroke-width="3" />
+                                <polygon points="14,-24.5 40,-31.5 40,31.5 14,24.5" fill="url(#wedgeGrad)" stroke="#000" stroke-width="3" />
+                                <polygon points="14,-24.5 40,-31.5 40,31.5 14,24.5" fill="url(#hazardStripes)" />
+                            </g>
+                        </svg>
+                    </div>
+                    <h3 class="text-blue-400 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">FLIPPER</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">Agility class. Toss foes away.</p>
+                </div>
+
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-purple-500" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('grappler')">
+                    <div class="bot-stats">
+                        <div class="text-purple-500 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 60%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 65%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 40%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 80%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <svg viewBox="-50 -50 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(147,51,234,0.5)]">
+                            <defs>
+                                <linearGradient id="grapBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#2a2a35" /><stop offset="100%" stop-color="#111" /></linearGradient>
+                            </defs>
+                            <g transform="rotate(-90)">
+                                <rect x="-17.5" y="-31.5" width="42" height="14" fill="#111" />
+                                <rect x="-17.5" y="17.5" width="42" height="14" fill="#111" />
+                                <polygon points="21,0 0,-28 -28,-14 -21,0 -28,14 0,28" fill="url(#grapBodyGrad)" stroke="#000" stroke-width="3" />
+                                <circle cx="-7" cy="0" r="8" fill="#00ffff" />
+                                <g transform="translate(7, -17.5)"><rect x="0" y="-8" width="21" height="16" fill="#333" stroke="#000" /></g>
+                                <g transform="translate(7, 17.5)"><rect x="0" y="-8" width="21" height="16" fill="#333" stroke="#000" /></g>
+                            </g>
+                        </svg>
+                    </div>
+                    <h3 class="text-purple-400 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">GRAPPLER</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">Control bot. Pins enemies in place.</p>
+                </div>
+
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-emerald-500" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('hammer')">
+                    <div class="bot-stats">
+                        <div class="text-emerald-500 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 30%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 100%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 100%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 100%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <svg viewBox="-50 -50 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(16,185,129,0.5)]">
+                            <defs>
+                                <linearGradient id="hammerBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#555" /><stop offset="100%" stop-color="#222" /></linearGradient>
+                                <linearGradient id="hammerHeadGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#777" /><stop offset="50%" stop-color="#eee" /><stop offset="100%" stop-color="#777" /></linearGradient>
+                            </defs>
+                            <g transform="rotate(-90)">
+                                <rect x="-21" y="-38.5" width="42" height="22" fill="#111" />
+                                <rect x="-21" y="16.5" width="42" height="22" fill="#111" />
+                                <polygon points="17.5,-28 17.5,28 -28,21 -28,-21" fill="url(#hammerBodyGrad)" stroke="#000" stroke-width="3" />
+                                <rect x="-14" y="-10" width="15" height="20" fill="#00ffff" />
+                                <g transform="translate(3.5, 0) scale(1.2)">
+                                    <rect x="-17.5" y="-6" width="35" height="12" fill="#333" />
+                                    <rect x="7" y="-21" width="10.5" height="42" fill="url(#hammerHeadGrad)" />
+                                </g>
+                            </g>
+                        </svg>
+                    </div>
+                    <h3 class="text-emerald-500 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">HAMMER</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">Slow tank. High-damage crushing strikes.</p>
+                </div>
+                
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-cyan-500" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('zapper')">
+                    <div class="bot-stats">
+                        <div class="text-cyan-500 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 90%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 15%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 60%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 20%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <svg viewBox="-50 -50 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(6,182,212,0.5)]">
+                            <defs>
+                                <linearGradient id="zapBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#444" /><stop offset="100%" stop-color="#222" /></linearGradient>
+                                <filter id="neonCyanZap"><feGaussianBlur stdDeviation="2" result="coloredBlur"/><feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                            </defs>
+                            <g transform="rotate(-90)">
+                                <rect x="-15" y="-30" width="30" height="12" fill="#111" />
+                                <rect x="-15" y="18" width="30" height="12" fill="#111" />
+                                <polygon points="15,0 -20,-20 -15,0 -20,20" fill="url(#zapBodyGrad)" stroke="#111" stroke-width="2" />
+                                <rect x="15" y="-12" width="20" height="4" fill="#333" stroke="#111" stroke-width="1" />
+                                <rect x="15" y="8" width="20" height="4" fill="#333" stroke="#111" stroke-width="1" />
+                                <circle cx="0" cy="0" r="6" fill="#06b6d4" filter="url(#neonCyanZap)" />
+                                <circle cx="33" cy="-10" r="2" fill="#06b6d4" filter="url(#neonCyanZap)" />
+                                <circle cx="33" cy="10" r="2" fill="#06b6d4" filter="url(#neonCyanZap)" />
+                            </g>
+                        </svg>
+                    </div>
+                    <h3 class="text-cyan-500 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">ZAPPER</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">Fragile speedster. Emits targeted arcs.</p>
+                </div>
+
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-orange-500" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('scorcher')">
+                    <div class="bot-stats">
+                        <div class="text-orange-500 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 40%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 80%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 80%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: 75%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <svg viewBox="-50 -50 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(249,115,22,0.5)]">
+                            <defs>
+                                <linearGradient id="scorchBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#555" /><stop offset="100%" stop-color="#2a2a2a" /></linearGradient>
+                                <linearGradient id="tankGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#991b1b" /><stop offset="50%" stop-color="#ef4444" /><stop offset="100%" stop-color="#991b1b" /></linearGradient>
+                            </defs>
+                            <g transform="rotate(-90)">
+                                <rect x="-15" y="-35" width="35" height="18" fill="#111" />
+                                <rect x="-15" y="17" width="35" height="18" fill="#111" />
+                                <rect x="-20" y="-22" width="35" height="44" rx="4" fill="url(#scorchBodyGrad)" stroke="#111" stroke-width="2" />
+                                <rect x="-26" y="-18" width="12" height="15" fill="url(#tankGrad)" rx="3" stroke="#000" stroke-width="1" />
+                                <rect x="-26" y="3" width="12" height="15" fill="url(#tankGrad)" rx="3" stroke="#000" stroke-width="1" />
+                                <rect x="15" y="-6" width="18" height="12" fill="#222" stroke="#000" stroke-width="2" />
+                                <rect x="33" y="-8" width="5" height="16" fill="#f97316" />
+                            </g>
+                        </svg>
+                    </div>
+                    <h3 class="text-orange-500 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">SCORCHER</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">Heavy flamer. Spews a massive fire cone.</p>
+                </div>
+                
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-rose-600" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('sawblade')">
+                    <div class="bot-stats">
+                        <div class="text-rose-600 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-rose-600" style="width: 65%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-rose-600" style="width: 55%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-rose-600" style="width: 85%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-rose-600" style="width: 60%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <svg viewBox="-50 -50 100 100" class="w-full h-full drop-shadow-[0_0_15px_rgba(225,29,72,0.5)]">
+                            <defs>
+                                <linearGradient id="sawBodyGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#333" /><stop offset="100%" stop-color="#111" /></linearGradient>
+                                <linearGradient id="sawBladeGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#eee" /><stop offset="50%" stop-color="#999" /><stop offset="100%" stop-color="#eee" /></linearGradient>
+                            </defs>
+                            <g transform="rotate(-90)">
+                                <rect x="-15" y="-30" width="30" height="15" fill="#111" />
+                                <rect x="-15" y="15" width="30" height="15" fill="#111" />
+                                <rect x="-20" y="-20" width="35" height="40" rx="4" fill="url(#sawBodyGrad)" stroke="#111" stroke-width="2" />
+                                <rect x="5" y="-6" width="30" height="12" fill="#222" stroke="#000" stroke-width="2" />
+                                <g transform="translate(35, 0)">
+                                    <circle cx="0" cy="0" r="14" fill="url(#sawBladeGrad)" stroke="#111" stroke-width="1" />
+                                    <circle cx="0" cy="0" r="4" fill="#e11d48" />
+                                    <path d="M 14,0 L 18,3 L 12,5 M 0,14 L -3,18 L -5,12 M -14,0 L -18,-3 L -12,-5 M 0,-14 L 3,-18 L 5,-12" stroke="#999" fill="none" stroke-width="2" />
+                                </g>
+                            </g>
+                        </svg>
+                    </div>
+                    <h3 class="text-rose-600 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">SAWBLADE</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">Frontal assault. Shreds armor.</p>
+                </div>
+
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-gray-400" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('random')">
+                    <div class="bot-stats">
+                        <div class="text-gray-400 text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold">COMBAT SPECS</div>
+                        <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-gray-400" style="width: 50%"></div></div></div>
+                        <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-gray-400" style="width: 50%"></div></div></div>
+                        <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-gray-400" style="width: 50%"></div></div></div>
+                        <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill bg-gray-400" style="width: 50%"></div></div></div>
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <div class="text-4xl sm:text-6xl text-gray-500 drop-shadow-[0_0_15px_rgba(156,163,175,0.5)]">?</div>
+                    </div>
+                    <h3 class="text-gray-400 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">RANDOM</h3>
+                    <p class="text-[7px] sm:text-[9px] text-gray-500 text-center px-1">Leave your fate to the arena.</p>
+                </div>
+
+                <!-- Custom Loaded Bot -->
+                <div id="custom-bot-card" class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-white hidden" onmouseenter="sfx.hover()" onclick="sfx.click(); startGame('custom')">
+                    <button onclick="event.stopPropagation(); sfx.click(); openExport()" class="absolute top-2 right-2 text-[8px] sm:text-xs bg-gray-800 text-white border border-gray-500 p-1 hover:bg-gray-600 z-10 transition-colors">💾 EXPORT</button>
+                    <div class="bot-stats" id="custom-bot-stats">
+                    </div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center" id="custom-bot-svg">
+                    </div>
+                    <h3 id="custom-bot-name" class="text-white text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest">CUSTOM</h3>
+                    <p id="custom-bot-desc" class="text-[7px] sm:text-[9px] text-gray-400 text-center px-1">Your loaded creation.</p>
+                </div>
+
+                <!-- Load Bot Tool -->
+                <div class="bot-card p-3 sm:p-4 rounded flex flex-col items-center border-b-4 sm:border-b-8 border-b-green-500 bg-green-950/20" onmouseenter="sfx.hover()" onclick="sfx.click(); openImport()">
+                    <div class="text-green-400 text-[10px] sm:text-sm mb-1 sm:mb-2 font-bold tracking-widest mt-auto">LOAD BOT</div>
+                    <div class="w-16 h-16 sm:w-24 sm:h-24 mb-2 sm:mb-4 relative flex justify-center items-center">
+                        <div class="text-4xl sm:text-6xl text-green-400 drop-shadow-[0_0_15px_rgba(34,197,94,0.8)]">💾</div>
+                    </div>
+                    <p class="text-[7px] sm:text-[9px] text-green-300 text-center px-1">Paste a code to load a saved bot!</p>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <!-- Import/Export Modal -->
+    <div id="io-modal" class="hidden overlay z-[70] bg-black/95">
+        <h2 id="io-title" class="text-2xl sm:text-3xl text-green-400 mb-4 font-bold" style="text-shadow: 2px 2px 0 #000;">BOT CODE</h2>
+        <p id="io-desc" class="text-[10px] sm:text-xs text-gray-300 mb-6 max-w-lg leading-relaxed">Copy this code to save your bot, or paste a code to load one!</p>
+        
+        <textarea id="io-input" rows="5" class="w-full max-w-lg bg-gray-900 border-2 border-green-500 text-white p-3 font-mono text-[10px] sm:text-xs outline-none mb-6 resize-none shadow-[0_0_15px_rgba(34,197,94,0.2)] break-all" placeholder="Paste bot code here..."></textarea>
+        
+        <div class="flex gap-4">
+            <button onclick="sfx.click(); document.getElementById('io-modal').classList.add('hidden');" class="px-6 py-3 bg-gray-700 text-white hover:bg-gray-600 border-2 border-gray-500 text-[10px] sm:text-xs">CLOSE</button>
+            <button id="io-action-btn" class="px-6 py-3 bg-green-600 text-white hover:bg-green-500 border-2 border-green-400 text-[10px] sm:text-xs shadow-[0_0_10px_rgba(34,197,94,0.5)]">ACTION</button>
+        </div>
+    </div>
+    
+    <!-- Controls Modal -->
+    <div id="controls-modal" class="hidden overlay z-[60] bg-black/95">
+        <h2 class="text-2xl sm:text-3xl text-yellow-400 mb-8 font-bold" style="text-shadow: 2px 2px 0 #000;">CONTROL SETTINGS</h2>
+        <div class="flex flex-col gap-8 w-full max-w-3xl px-4">
+            <div class="flex flex-col gap-3 text-left">
+                <label class="text-cyan-400 text-sm">PLAYER 1 CONTROLS</label>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button onclick="setControlScheme(1, 'wasd_space')" id="btn-p1-wasd_space" class="cbtn-p1 mode-btn selected">WASD + SPACE<br><span class="text-[8px]">(Tank)</span></button>
+                    <button onclick="setControlScheme(1, 'arrows_shift')" id="btn-p1-arrows_shift" class="cbtn-p1 mode-btn">ARROWS + SHIFT<br><span class="text-[8px]">(Tank)</span></button>
+                    <button onclick="setControlScheme(1, 'wasd_mouse')" id="btn-p1-wasd_mouse" class="cbtn-p1 mode-btn">WASD + MOUSE<br><span class="text-[8px]">(Aim)</span></button>
+                    <button onclick="setControlScheme(1, 'arrows_mouse')" id="btn-p1-arrows_mouse" class="cbtn-p1 mode-btn">ARROWS + MOUSE<br><span class="text-[8px]">(Aim)</span></button>
+                </div>
+            </div>
+            <div class="flex flex-col gap-3 text-left">
+                <label class="text-red-400 text-sm">PLAYER 2 CONTROLS</label>
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <button onclick="setControlScheme(2, 'wasd_space')" id="btn-p2-wasd_space" class="cbtn-p2 mode-btn">WASD + SPACE<br><span class="text-[8px]">(Tank)</span></button>
+                    <button onclick="setControlScheme(2, 'arrows_shift')" id="btn-p2-arrows_shift" class="cbtn-p2 mode-btn selected">ARROWS + SHIFT<br><span class="text-[8px]">(Tank)</span></button>
+                    <button onclick="setControlScheme(2, 'wasd_mouse')" id="btn-p2-wasd_mouse" class="cbtn-p2 mode-btn">WASD + MOUSE<br><span class="text-[8px]">(Aim)</span></button>
+                    <button onclick="setControlScheme(2, 'arrows_mouse')" id="btn-p2-arrows_mouse" class="cbtn-p2 mode-btn">ARROWS + MOUSE<br><span class="text-[8px]">(Aim)</span></button>
+                </div>
+            </div>
+        </div>
+        <button onclick="sfx.click(); closeControls()" class="mt-12 px-8 py-4 bg-yellow-500 text-black border-4 border-white text-sm font-bold hover:bg-yellow-400 transition-colors">SAVE & CLOSE</button>
+    </div>
+
+    <!-- Game Over -->
+    <div id="game-over" class="overlay hidden">
+        <h1 id="result-title" class="text-4xl sm:text-5xl md:text-6xl mb-4 sm:mb-6 text-center" style="text-shadow: 4px 4px 0 #000;">YOU WIN!</h1>
+        <p id="result-desc" class="text-sm sm:text-lg md:text-xl text-gray-300 mb-8 text-center px-4">The enemy has been reduced to scrap.</p>
+        
+        <div id="score-form" class="flex flex-col items-center gap-4 mb-8 hidden w-full px-4">
+            <h3 class="text-yellow-400 text-xs sm:text-base text-center">NEW COMBAT RECORD! ENTER NAME:</h3>
+            <div class="flex flex-col sm:flex-row gap-2 w-full justify-center items-center">
+                <input type="text" id="player-name-input" maxlength="15" placeholder="PILOT NAME" class="bg-gray-900 border-2 border-gray-500 text-white px-4 py-3 text-center text-sm sm:text-xl uppercase focus:border-yellow-400 outline-none w-full max-w-[250px] font-[Press_Start_2P]">
+                <button onmouseenter="sfx.hover()" onclick="sfx.click(); submitScore()" class="px-6 py-3 bg-blue-600 text-white text-xs sm:text-base hover:bg-blue-500 transition-colors border-2 border-blue-400 w-full max-w-[250px] sm:w-auto">SUBMIT</button>
+            </div>
+        </div>
+        <div id="score-success" class="text-green-400 text-sm sm:text-xl mb-8 hidden blink text-center">SCORE SAVED LOCALLY!</div>
+
+        <button onmouseenter="sfx.hover()" onclick="sfx.click(); showMenu()" class="px-6 py-3 sm:px-8 sm:py-4 bg-yellow-500 text-black text-sm sm:text-xl hover:bg-yellow-400 transition-colors border-4 border-white">
+            MAIN MENU
+        </button>
+    </div>
+
+    <!-- Leaderboard Screen -->
+    <div id="leaderboard-screen" class="overlay hidden">
+        <h2 class="text-2xl sm:text-4xl text-yellow-400 mb-2 mt-10" style="text-shadow: 3px 3px 0 #d91c1c;">LEADERBOARDS</h2>
+        
+        <div class="flex gap-2 sm:gap-4 mb-6 mt-4 flex-wrap justify-center max-w-2xl px-2">
+            <button id="lb-btn-1v1" class="mode-btn selected" onmouseenter="sfx.hover()" onclick="sfx.click(); setLbMode('1v1')">1v1 BRAWL</button>
+            <button id="lb-btn-pvp" class="mode-btn text-cyan-400 border-cyan-900 hover:border-cyan-400" onmouseenter="sfx.hover()" onclick="sfx.click(); setLbMode('pvp')">LOCAL PVP</button>
+            <button id="lb-btn-2v2" class="mode-btn" onmouseenter="sfx.hover()" onclick="sfx.click(); setLbMode('2v2')">2v2 TEAM</button>
+            <button id="lb-btn-endless" class="mode-btn" onmouseenter="sfx.hover()" onclick="sfx.click(); setLbMode('endless')">ENDLESS</button>
+            <button id="lb-btn-boss" class="mode-btn text-red-400 border-red-900 hover:border-red-400" onmouseenter="sfx.hover()" onclick="sfx.click(); setLbMode('boss')">BOSS</button>
+            <button id="lb-btn-betheboss" class="mode-btn text-purple-400 border-purple-900 hover:border-purple-400" onmouseenter="sfx.hover()" onclick="sfx.click(); setLbMode('betheboss')">BE THE BOSS</button>
+        </div>
+
+        <div class="leaderboard-container">
+            <table class="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>RANK</th>
+                        <th>NAME</th>
+                        <th>GAMEMODE</th>
+                        <th>MATCH TIME</th>
+                        <th class="text-green-400">SCORE</th>
+                        <th>BOTS DEFEATED</th>
+                    </tr>
+                </thead>
+                <tbody id="leaderboard-body">
+                </tbody>
+            </table>
+            <div id="lb-loading" class="text-center mt-10 text-gray-500 text-[10px] sm:text-sm">Connecting to Local DB...</div>
+        </div>
+
+        <button onmouseenter="sfx.hover()" onclick="sfx.click(); closeLeaderboard()" class="px-6 py-3 sm:px-8 sm:py-4 bg-gray-700 text-white text-sm sm:text-xl hover:bg-gray-600 transition-colors border-4 border-gray-500 mb-10">
+            BACK TO MENU
+        </button>
+    </div>
+
+</div>
+
+<script>
+    window.toggleMute = toggleMute;
+    window.setMode = setMode;
+    window.startGame = startGame;
+    window.startNetworkGame = startNetworkGame;
+    window.showMenu = showMenu;
+    window.showLeaderboard = showLeaderboard;
+    window.closeLeaderboard = closeLeaderboard;
+    window.setLbMode = setLbMode;
+    window.openControls = openControls;
+    window.closeControls = closeControls;
+    window.setControlScheme = setControlScheme;
+    window.toggleCoop = toggleCoop;
+    window.openExport = openExport;
+    window.openImport = openImport;
+    window.loadBotFromCode = loadBotFromCode;
+
+    // --- Networking State ---
+    let socket = null;
+    let isNetworkGame = false;
+    let networkRole = null;
+    let remoteInputs = { w: false, a: false, s: false, d: false, space: false, useMouse: false, mouseX: 0, mouseY: 0 };
+    let joinerStateData = null;
+
+    document.addEventListener("DOMContentLoaded", () => {
+        if (typeof io !== 'undefined') {
+            socket = io();
+            socket.on('joinerStateSync', (data) => { 
+                if (networkRole === 'joiner') joinerStateData = data; 
+            });
+            socket.on('hostReceiveInput', (data) => { 
+                if (networkRole === 'host') remoteInputs = data; 
+            });
+        }
+    });
+
+    // --- Game State ---
+    let leaderboardData = [];
+    let currentLbMode = '1v1';
+    let gameState = 'MENU';
+    let gameMode = '1v1'; 
+    let endlessWave = 1;
+    let gameTime = 0;
+    let lastTime = 0;
+    let cameraShake = 0;
+    let particles = [];
+    let scraps = []; 
+    let bots = [];
+    let botIdCounter = 0;
+    let pvpP1Choice = null; 
+    let playerScore = 0;
+    let isCoop = false;
+    let tutorialPhase = 0;
+    let tutorialProgress = 0;
+    let tutorialBotRef = null;
+
+    function setMode(mode) {
+        gameMode = mode;
+        pvpP1Choice = null;
+        document.querySelectorAll('#main-menu .mode-btn').forEach(b => b.classList.remove('selected'));
+        const activeBtn = document.getElementById('btn-' + mode);
+        if (activeBtn) activeBtn.classList.add('selected');
+        document.getElementById('bot-select-title').innerText = (gameMode === 'pvp' || isCoop) ? "P1: SELECT YOUR BOT" : "SELECT YOUR BOT";
+    }
+
+    async function submitScore() {
+        const nameInput = document.getElementById('player-name-input').value.trim() || 'UNKNOWN PILOT';
+        
+        let botsDefeated = 0;
+        if (gameMode === 'endless') botsDefeated = endlessWave - 1;
+        else if (gameMode === '1v1') botsDefeated = 1;
+        else if (gameMode === '2v2') botsDefeated = 2;
+        else if (gameMode === 'boss') botsDefeated = 1;
+        else if (gameMode === 'betheboss') botsDefeated = 6;
+        else if (gameMode === 'tutorial') return; 
+        
+        const scoreData = {
+            name: nameInput,
+            gamemode: gameMode,
+            matchTime: document.getElementById('battle-timer').innerText,
+            score: Math.floor(playerScore),
+            botsDefeated: botsDefeated
+        };
+
+        try {
+            await fetch('/api/scores', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(scoreData)
+            });
+            document.getElementById('score-form').classList.add('hidden');
+            document.getElementById('score-success').classList.remove('hidden');
+        } catch (e) {
+            console.error("Local save failed", e);
+        }
+    }
+
+    async function showLeaderboard() {
+        ui.menu.classList.add('hidden');
+        document.getElementById('leaderboard-screen').classList.remove('hidden');
+        document.getElementById('lb-loading').classList.remove('hidden');
+        try {
+            let res = await fetch('/api/leaderboard');
+            leaderboardData = await res.json();
+            renderLeaderboard();
+        } catch(e) {
+            console.error("Failed to load local DB");
+            document.getElementById('lb-loading').innerText = "Database offline.";
+        }
+    }
+
+    function closeLeaderboard() {
+        document.getElementById('leaderboard-screen').classList.add('hidden');
+        ui.menu.classList.remove('hidden');
+    }
+
+    function setLbMode(mode) {
+        currentLbMode = mode;
+        document.querySelectorAll('#leaderboard-screen .mode-btn').forEach(b => b.classList.remove('selected'));
+        document.getElementById(`lb-btn-${mode}`).classList.add('selected');
+        renderLeaderboard();
+    }
+
+    function renderLeaderboard() {
+        const tbody = document.getElementById('leaderboard-body');
+        const loading = document.getElementById('lb-loading');
+        if (!tbody || !loading) return;
+        
+        loading.classList.add('hidden');
+        tbody.innerHTML = '';
+
+        let filtered = leaderboardData.filter(d => d.gamemode === currentLbMode);
+        filtered.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+        if (filtered.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="6" class="text-center text-gray-500 py-8">No records found for this mode yet. Be the first!</td></tr>`;
+            return;
+        }
+
+        filtered.forEach((entry, index) => {
+            const tr = document.createElement('tr');
+            let rankColor = index === 0 ? '#eab308' : (index === 1 ? '#9ca3af' : (index === 2 ? '#b45309' : '#fff'));
+
+            tr.innerHTML = `
+                <td style="color: ${rankColor}; font-weight: bold;">#${index + 1}</td>
+                <td class="text-cyan-400">${entry.name} <span class="text-gray-500 text-[8px] sm:text-[10px]">(${entry.dayOfWeek || 'Offline'})</span></td>
+                <td class="uppercase">${entry.gamemode}</td>
+                <td>${entry.matchTime}</td>
+                <td class="text-green-400 font-bold">${entry.score || 0}</td>
+                <td class="text-red-400">${entry.botsDefeated}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    }
+
+    // --- Setup & Utilities ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    let isMuted = false;
+    function toggleMute() {
+        isMuted = !isMuted;
+        document.getElementById('mute-btn').innerText = isMuted ? "🔇" : "🔊";
+        if (sfx && sfx.masterGain) {
+            sfx.masterGain.gain.value = isMuted ? 0 : 0.4;
+        }
+        if (isMuted && window.speechSynthesis) window.speechSynthesis.cancel();
+    }
+    
+    const ui = {
+        menu: document.getElementById('main-menu'),
+        hud: document.getElementById('hud'),
+        team0Hud: document.getElementById('team-0-hud'),
+        team1Hud: document.getElementById('team-1-hud'),
+        waveDisplay: document.getElementById('wave-display'),
+        scoreDisplay: document.getElementById('score-display'),
+        battleTimer: document.getElementById('battle-timer'),
+        vsText: document.getElementById('vs-text'),
+        gameOver: document.getElementById('game-over'),
+        instructions: document.getElementById('instructions'),
+        resTitle: document.getElementById('result-title'),
+        resDesc: document.getElementById('result-desc')
+    };
+
+    function resizeCanvas() {
+        const targetRatio = 1024 / 768;
+        const windowRatio = window.innerWidth / window.innerHeight;
+        let finalWidth, finalHeight;
+
+        if (windowRatio > targetRatio) {
+            finalHeight = window.innerHeight;
+            finalWidth = finalHeight * targetRatio;
+        } else {
+            finalWidth = window.innerWidth;
+            finalHeight = finalWidth / targetRatio;
+        }
+
+        canvas.style.width = `${finalWidth}px`;
+        canvas.style.height = `${finalHeight}px`;
+    }
+    window.addEventListener('resize', resizeCanvas);
+    resizeCanvas();
+
+    // --- Input & Control System ---
+    let p1ControlScheme = 'wasd_space';
+    let p2ControlScheme = 'arrows_shift';
+    
+    const rawKeys = {};
+    let mouseX = 0, mouseY = 0, mouseClicked = false;
+
+    canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        mouseX = (e.clientX - rect.left) * scaleX;
+        mouseY = (e.clientY - rect.top) * scaleY;
+    });
+    canvas.addEventListener('mousedown', (e) => { if(e.button === 0) mouseClicked = true; });
+    canvas.addEventListener('mouseup', (e) => { if(e.button === 0) mouseClicked = false; });
+
+    window.addEventListener('keydown', (e) => {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+        rawKeys[e.code] = true;
+        if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
+    });
+
+    window.addEventListener('keyup', (e) => {
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+        rawKeys[e.code] = false;
+    });
+
+    function getPlayerInputs(scheme) {
+        let inputs = { w: false, a: false, s: false, d: false, space: false, useMouse: false, mouseX: mouseX, mouseY: mouseY };
+        if (scheme === 'wasd_space') {
+            inputs.w = rawKeys['KeyW']; inputs.s = rawKeys['KeyS']; inputs.a = rawKeys['KeyA']; inputs.d = rawKeys['KeyD'];
+            inputs.space = rawKeys['Space'];
+        } else if (scheme === 'arrows_shift') {
+            inputs.w = rawKeys['ArrowUp']; inputs.s = rawKeys['ArrowDown']; inputs.a = rawKeys['ArrowLeft']; inputs.d = rawKeys['ArrowRight'];
+            inputs.space = rawKeys['ShiftLeft'] || rawKeys['ShiftRight'] || rawKeys['ControlRight'] || rawKeys['Enter'];
+        } else if (scheme === 'wasd_mouse') {
+            inputs.useMouse = true;
+            inputs.w = rawKeys['KeyW']; inputs.s = rawKeys['KeyS']; inputs.a = rawKeys['KeyA']; inputs.d = rawKeys['KeyD'];
+            inputs.space = mouseClicked;
+        } else if (scheme === 'arrows_mouse') {
+            inputs.useMouse = true;
+            inputs.w = rawKeys['ArrowUp']; inputs.s = rawKeys['ArrowDown']; inputs.a = rawKeys['ArrowLeft']; inputs.d = rawKeys['ArrowRight'];
+            inputs.space = mouseClicked;
+        }
+        return inputs;
+    }
+
+    function openControls() {
+        updateControlUI();
+        document.getElementById('controls-modal').classList.remove('hidden');
+    }
+
+    function closeControls() {
+        document.getElementById('controls-modal').classList.add('hidden');
+        updateInstructionsDisplay();
+    }
+
+    function setControlScheme(playerNum, scheme) {
+        let isWasd = scheme.startsWith('wasd');
+        let isMouse = scheme.endsWith('mouse');
+
+        if (playerNum === 1) {
+            p1ControlScheme = scheme;
+            let p2IsMouse = p2ControlScheme.endsWith('mouse');
+            if (isMouse) p2IsMouse = false;
+            p2ControlScheme = isWasd ? (p2IsMouse ? 'arrows_mouse' : 'arrows_shift') : (p2IsMouse ? 'wasd_mouse' : 'wasd_space');
+        } else {
+            p2ControlScheme = scheme;
+            let p1IsMouse = p1ControlScheme.endsWith('mouse');
+            if (isMouse) p1IsMouse = false;
+            p1ControlScheme = isWasd ? (p1IsMouse ? 'arrows_mouse' : 'arrows_shift') : (p1IsMouse ? 'wasd_mouse' : 'wasd_space');
+        }
+        
+        sfx.click();
+        updateControlUI();
+    }
+
+    function updateControlUI() {
+        let p1HasMouse = p1ControlScheme.endsWith('mouse');
+        let p2HasMouse = p2ControlScheme.endsWith('mouse');
+
+        ['wasd_space', 'arrows_shift', 'wasd_mouse', 'arrows_mouse'].forEach(scheme => {
+            let p1Btn = document.getElementById('btn-p1-' + scheme);
+            let p2Btn = document.getElementById('btn-p2-' + scheme);
+            
+            if (p1Btn) {
+                p1Btn.classList.toggle('selected', p1ControlScheme === scheme);
+                p1Btn.disabled = scheme.endsWith('mouse') && p2HasMouse;
+            }
+            if (p2Btn) {
+                p2Btn.classList.toggle('selected', p2ControlScheme === scheme);
+                p2Btn.disabled = scheme.endsWith('mouse') && p1HasMouse;
+            }
+        });
+        updateInstructionsDisplay();
+    }
+
+    function updateInstructionsDisplay() {
+        const names = { 'wasd_space': 'WASD+SPACE', 'arrows_shift': 'ARROWS+SHIFT', 'wasd_mouse': 'WASD+MOUSE', 'arrows_mouse': 'ARROWS+MOUSE' };
+        ui.instructions.innerHTML = `P1: [${names[p1ControlScheme]}] &nbsp; | &nbsp; P2: [${names[p2ControlScheme]}]`;
+    }
+    
+    function toggleCoop() {
+        isCoop = !isCoop;
+        const btn = document.getElementById('btn-coop');
+        const btn1v1 = document.getElementById('btn-1v1');
+        const btn2v2 = document.getElementById('btn-2v2');
+        const btnEndless = document.getElementById('btn-endless');
+        const btnBoss = document.getElementById('btn-boss');
+        const btnBeTheBoss = document.getElementById('btn-betheboss');
+        const btnPvP = document.getElementById('btn-pvp');
+
+        if (isCoop) {
+            btn.classList.replace('text-gray-500', 'text-green-400');
+            btn.classList.replace('border-gray-600', 'border-green-500');
+            btn.innerText = "🤝 CO-OP: ON";
+            
+            btn1v1.innerText = "2v1 BRAWL";
+            btn2v2.innerText = "2v2 CO-OP";
+            btnEndless.innerText = "CO-OP ENDLESS";
+            btnBoss.innerText = "CO-OP BOSS";
+            btnBeTheBoss.innerText = "2 GIANT BOSSES";
+            
+            btnPvP.style.opacity = '0.3';
+            btnPvP.style.pointerEvents = 'none';
+
+            if (gameMode === 'pvp' || gameMode === 'tutorial') setMode('1v1'); 
+        } else {
+            btn.classList.replace('text-green-400', 'text-gray-500');
+            btn.classList.replace('border-green-500', 'border-gray-600');
+            btn.innerText = "🤝 CO-OP: OFF";
+            
+            btn1v1.innerText = "1v1 BRAWL";
+            btn2v2.innerText = "2v2 TEAM";
+            btnEndless.innerText = "ENDLESS";
+            btnBoss.innerText = "BOSS BATTLE";
+            btnBeTheBoss.innerText = "BE THE BOSS";
+            
+            btnPvP.style.opacity = '1';
+            btnPvP.style.pointerEvents = 'auto';
+        }
+        pvpP1Choice = null;
+        document.getElementById('bot-select-title').innerText = (gameMode === 'pvp' || isCoop) ? "P1: SELECT YOUR BOT" : "SELECT YOUR BOT";
+    }
+
+    function addScore(points) {
+        if (gameMode === 'pvp') return; 
+        playerScore += points;
+        if (ui.scoreDisplay) ui.scoreDisplay.innerText = `SCORE: ${Math.floor(playerScore)}`;
+    }
+
+    const botTypes = {
+        spinner: {
+            name: "SPINNER", radius: 35, mass: 1.1, accel: 4000, maxSpeed: 260, turnSpeed: 6.0, hp: 110, color: '#4b5563', highlight: '#eab308',
+            abilityCooldown: 3500, abilityDuration: 2000
+        },
+        flipper: {
+            name: "FLIPPER", radius: 35, mass: 1.1, accel: 5200, maxSpeed: 300, turnSpeed: 6.5, hp: 90, color: '#4b5563', highlight: '#3b82f6',
+            abilityCooldown: 2000, abilityDuration: 300
+        },
+        grappler: {
+            name: "GRAPPLER", radius: 35, mass: 1.6, accel: 4200, maxSpeed: 240, turnSpeed: 5.0, hp: 130, color: '#4b5563', highlight: '#9333ea',
+            abilityCooldown: 2500, abilityDuration: 1500
+        },
+        hammer: {
+            name: "HAMMER", radius: 35, mass: 2.0, accel: 3000, maxSpeed: 190, turnSpeed: 3.2, hp: 160, color: '#4b5563', highlight: '#10b981',
+            abilityCooldown: 3500, abilityDuration: 400
+        },
+        zapper: {
+            name: "ZAPPER", radius: 35, mass: 0.9, accel: 4800, maxSpeed: 280, turnSpeed: 6.0, hp: 85, color: '#4b5563', highlight: '#06b6d4',
+            abilityCooldown: 3000, abilityDuration: 1000
+        },
+        scorcher: {
+            name: "SCORCHER", radius: 35, mass: 1.5, accel: 3500, maxSpeed: 200, turnSpeed: 4.0, hp: 140, color: '#4b5563', highlight: '#f97316',
+            abilityCooldown: 3500, abilityDuration: 2500
+        },
+        sawblade: {
+            name: "SAWBLADE", radius: 35, mass: 1.3, accel: 4200, maxSpeed: 230, turnSpeed: 5.5, hp: 120, color: '#4b5563', highlight: '#e11d48',
+            abilityCooldown: 3000, abilityDuration: 1800
+        }
+    };
+
+    // --- Offline Audio Engine ---
+    Object.assign(sfx, {
+        ctx: null,
+        masterGain: null,
+        lastSpeechTime: 0,
+        init: function() {
+            if (!this.ctx) {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                this.masterGain = this.ctx.createGain();
+                this.masterGain.connect(this.ctx.destination);
+                this.masterGain.gain.value = isMuted ? 0 : 0.4;
+            }
+            if (this.ctx.state === 'suspended') this.ctx.resume();
+        },
+        playTone: function(freq, type, duration, vol=0.1, slideFreq=null) {
+            if(!this.ctx) return;
+            let osc = this.ctx.createOscillator(); let gain = this.ctx.createGain();
+            osc.type = type; osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+            if (slideFreq) osc.frequency.exponentialRampToValueAtTime(slideFreq, this.ctx.currentTime + duration);
+            osc.connect(gain); gain.connect(this.masterGain);
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+            osc.start(); osc.stop(this.ctx.currentTime + duration);
+        },
+        playNoise: function(duration, vol=0.1) {
+            if(!this.ctx) return;
+            let bufferSize = Math.floor(this.ctx.sampleRate * duration);
+            let buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+            let data = buffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+            let noise = this.ctx.createBufferSource(); noise.buffer = buffer; let gain = this.ctx.createGain(); let filter = this.ctx.createBiquadFilter();
+            filter.type = 'lowpass'; filter.frequency.value = 1000;
+            noise.connect(filter); filter.connect(gain); gain.connect(this.masterGain);
+            gain.gain.setValueAtTime(vol, this.ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+            noise.start();
+        },
+        hover: () => { if(sfx.ctx && sfx.ctx.state === 'running') sfx.playTone(1200, 'sine', 0.05, 0.02); },
+        click: () => { sfx.init(); sfx.playTone(600, 'square', 0.1, 0.1, 1200); },
+        hit: () => sfx.playNoise(0.2, 0.3),
+        heavyHit: () => { sfx.playNoise(0.4, 0.5); sfx.playTone(100, 'square', 0.3, 0.2, 50); },
+        explosion: () => { if(!sfx.ctx) return; sfx.playNoise(0.8, 0.6); sfx.playTone(100, 'sawtooth', 0.8, 0.4, 20); },
+        wallBump: () => { if(sfx.ctx) { sfx.playNoise(0.1, 0.1); sfx.playTone(150, 'triangle', 0.1, 0.1, 50); } },
+        dropWhistle: () => { if(sfx.ctx) sfx.playTone(1500, 'sine', 1.0, 0.1, 200); },
+        hazardOn: () => { if(sfx.ctx) sfx.playTone(300, 'square', 0.4, 0.05, 800); },
+        abilityReady: () => { if(sfx.ctx) sfx.playTone(880, 'sine', 0.1, 0.05, 1200); },
+        speak: function(text) {
+            if (typeof isMuted !== 'undefined' && isMuted) return;
+            if (Date.now() - this.lastSpeechTime < 1500) return;
+            this.lastSpeechTime = Date.now();
+            
+            if (!window.speechSynthesis) return;
+            let msg = new SpeechSynthesisUtterance(text);
+            let voices = window.speechSynthesis.getVoices();
+            let deepVoice = voices.find(v => v.name.includes('David') || v.name.includes('Mark') || v.name.includes('UK English Male') || v.name.includes('Daniel'));
+            if (deepVoice) msg.voice = deepVoice;
+            msg.pitch = 0.1; msg.rate = 0.9; msg.volume = 0.8;
+            window.speechSynthesis.speak(msg);
+        },
+        winFanfare: function() {
+            if(!this.ctx) return;
+            this.bgm.stop();
+            setTimeout(() => this.playTone(523.25, 'square', 0.15, 0.15), 0);
+            setTimeout(() => this.playTone(659.25, 'square', 0.15, 0.15), 150);
+            setTimeout(() => this.playTone(783.99, 'square', 0.15, 0.15), 300);
+            setTimeout(() => this.playTone(1046.50, 'square', 0.5, 0.15), 450);
+        },
+        loseDirge: function() {
+            if(!this.ctx) return;
+            this.bgm.stop();
+            setTimeout(() => { this.playTone(300, 'sawtooth', 0.4, 0.2, 280); this.playNoise(0.4, 0.1); }, 0);
+            setTimeout(() => { this.playTone(280, 'sawtooth', 0.4, 0.2, 260); this.playNoise(0.4, 0.1); }, 400);
+            setTimeout(() => { this.playTone(260, 'sawtooth', 0.4, 0.2, 240); this.playNoise(0.4, 0.1); }, 800);
+            setTimeout(() => { this.playTone(240, 'sawtooth', 1.5, 0.2, 100); this.playNoise(1.2, 0.3); }, 1200);
+        },
+        abilityFlipper: () => sfx.playTone(150, 'sawtooth', 0.3, 0.2, 600),
+        abilityGrappler: () => sfx.playTone(400, 'square', 0.2, 0.1, 100),
+        abilitySpinner: () => sfx.playTone(800, 'sawtooth', 1.5, 0.1, 1200),
+        abilityHammer: () => {
+            if(!sfx.ctx) return;
+            sfx.playNoise(0.2, 0.2); sfx.playTone(300, 'triangle', 0.2, 0.2, 50);
+            setTimeout(() => { sfx.playNoise(0.3, 0.6); sfx.playTone(150, 'square', 0.3, 0.4, 40); sfx.playTone(800, 'sine', 0.1, 0.2); }, 100);
+        },
+        abilityZapper: () => { if(!sfx.ctx) return; sfx.playTone(400, 'sawtooth', 0.8, 0.1, 100); sfx.playNoise(0.8, 0.15); },
+        abilityScorcher: () => { if(!sfx.ctx) return; sfx.playNoise(2.0, 0.3); sfx.playTone(150, 'square', 2.0, 0.2, 50); },
+        abilitySawblade: () => { if(!sfx.ctx) return; sfx.playNoise(1.2, 0.2); sfx.playTone(600, 'sawtooth', 1.2, 0.15, 1000); },
+        powerup: () => { sfx.playTone(600, 'square', 0.1, 0.1, 1200); setTimeout(() => sfx.playTone(1200, 'square', 0.2, 0.1, 1800), 100); },
+        bgm: {
+            isPlaying: false, currentStep: 0, nextNoteTime: 0, timerID: null, bpm: 150,
+            bassPattern: [ 82, 82, 165, 82, 98, 82, 110, 98, 82, 82, 165, 82, 123, 110, 98, 147, 82, 82, 165, 82, 98, 82, 110, 98, 165, 82, 196, 82, 147, 123, 110, 98, 110, 110, 220, 110, 130, 110, 147, 130, 110, 110, 220, 110, 165, 147, 130, 196, 123, 123, 246, 123, 146, 123, 164, 146, 246, 246, 196, 196, 164, 164, 146, 146 ],
+            kickPattern: [ 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 0, 0 ],
+            snarePattern:[ 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 ],
+            hatPattern:  [ 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0 ],
+            playKick: function(time, ctx) { let osc = ctx.createOscillator(); let gain = ctx.createGain(); osc.connect(gain); gain.connect(sfx.masterGain); osc.frequency.setValueAtTime(150, time); osc.frequency.exponentialRampToValueAtTime(0.01, time + 0.2); gain.gain.setValueAtTime(0.4, time); gain.gain.exponentialRampToValueAtTime(0.01, time + 0.2); osc.start(time); osc.stop(time + 0.2); },
+            playSnare: function(time, ctx) { let bufferSize = Math.floor(ctx.sampleRate * 0.15); let buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate); let data = buffer.getChannelData(0); for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1; let noise = ctx.createBufferSource(); noise.buffer = buffer; let filter = ctx.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.value = 1000; let gain = ctx.createGain(); noise.connect(filter); filter.connect(gain); gain.connect(sfx.masterGain); gain.gain.setValueAtTime(0.3, time); gain.gain.exponentialRampToValueAtTime(0.01, time + 0.15); noise.start(time); },
+            playHat: function(time, ctx) { let bufferSize = Math.floor(ctx.sampleRate * 0.05); let buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate); let data = buffer.getChannelData(0); for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1; let noise = ctx.createBufferSource(); noise.buffer = buffer; let filter = ctx.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.value = 5000; let gain = ctx.createGain(); noise.connect(filter); filter.connect(gain); gain.connect(sfx.masterGain); gain.gain.setValueAtTime(0.1, time); gain.gain.exponentialRampToValueAtTime(0.01, time + 0.05); noise.start(time); },
+            playBass: function(time, freq, ctx) { let osc = ctx.createOscillator(); let filter = ctx.createBiquadFilter(); let gain = ctx.createGain(); osc.type = 'square'; osc.frequency.value = freq; filter.type = 'lowpass'; filter.frequency.setValueAtTime(1200, time); filter.frequency.exponentialRampToValueAtTime(100, time + 0.15); osc.connect(filter); filter.connect(gain); gain.connect(sfx.masterGain); gain.gain.setValueAtTime(0.15, time); gain.gain.linearRampToValueAtTime(0.15, time + 0.05); gain.gain.exponentialRampToValueAtTime(0.01, time + 0.15); osc.start(time); osc.stop(time + 0.15); },
+            schedule: function(ctx) { while (this.nextNoteTime < ctx.currentTime + 0.1) { let time = this.nextNoteTime; let step = this.currentStep; if (this.kickPattern[step]) this.playKick(time, ctx); if (this.snarePattern[step]) this.playSnare(time, ctx); if (this.hatPattern[step]) this.playHat(time, ctx); if (this.bassPattern[step]) this.playBass(time, this.bassPattern[step], ctx); let secondsPerBeat = 60.0 / this.bpm; this.nextNoteTime += secondsPerBeat / 4; this.currentStep = (this.currentStep + 1) % 64; } this.timerID = setTimeout(() => this.schedule(ctx), 25); },
+            start: function(ctx) { if (this.isPlaying) return; this.isPlaying = true; this.currentStep = 0; this.nextNoteTime = ctx.currentTime + 0.05; this.schedule(ctx); },
+            stop: function() { this.isPlaying = false; if(this.timerID) clearTimeout(this.timerID); this.timerID = null; }
+        },
+        startBGM: function() { if (this.ctx) this.bgm.start(this.ctx); }
+    });
+    window.addEventListener('pointerdown', () => { if (!sfx.ctx) sfx.init(); }, { once: true });
+
+    // --- Import / Export System ---
+    let lastForgedBotData = null;
+
+    function buildCustomBot(parsed) {
+        lastForgedBotData = parsed;
+        
+        let svgStrBodyOnly = `
+            <defs>
+                <linearGradient id="metalGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#666" /><stop offset="50%" stop-color="#333" /><stop offset="100%" stop-color="#111" /></linearGradient>
+                <linearGradient id="weaponGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fff" /><stop offset="50%" stop-color="#aaa" /><stop offset="100%" stop-color="#555" /></linearGradient>
+            </defs>
+            ${parsed.svgContent}
+        `;
+        
+        let svgStrGame = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-50 -50 100 100">${svgStrBodyOnly}</svg>`;
+        let blob = new Blob([svgStrGame], {type: 'image/svg+xml'});
+        let img = new Image();
+        
+        img.onload = () => {
+            botTypes['custom'] = {
+                name: parsed.name.toUpperCase().substring(0, 10), radius: 35, mass: 0.5 + (parsed.weight / 100) * 2.0, maxSpeed: 150 + (parsed.speed / 100) * 150,
+                accel: 2000 + (parsed.speed / 100) * 3500, turnSpeed: 3.0 + (parsed.speed / 100) * 4.0, hp: 60 + (parsed.armor / 100) * 100, color: parsed.color || '#444',
+                highlight: parsed.highlight || '#ff0', abilityCooldown: botTypes[parsed.baseType].abilityCooldown, abilityDuration: botTypes[parsed.baseType].abilityDuration,
+                baseType: parsed.baseType, powerMult: 0.5 + (parsed.power / 100) * 1.0, img: img, isCustom: true
+            };
+            
+            const highlight = parsed.highlight || '#ffffff';
+            const customCard = document.getElementById('custom-bot-card');
+            
+            if (document.getElementById('custom-bot-name')) {
+                document.getElementById('custom-bot-name').innerText = botTypes['custom'].name;
+                document.getElementById('custom-bot-name').style.color = highlight;
+            }
+            if (customCard) customCard.style.borderBottomColor = highlight;
+            if (document.getElementById('custom-bot-svg')) {
+                document.getElementById('custom-bot-svg').innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-50 -50 100 100" class="w-full h-full"><g transform="rotate(-90)">${svgStrBodyOnly}</g></svg>`;
+                document.getElementById('custom-bot-svg').style.filter = `drop-shadow(0 0 15px ${highlight}80)`;
+            }
+            if (document.getElementById('custom-bot-stats')) {
+                document.getElementById('custom-bot-stats').innerHTML = `
+                    <div class="text-[8px] sm:text-[10px] mb-2 sm:mb-4 font-bold" style="color: ${highlight}">COMBAT SPECS</div>
+                    <div class="stat-row"><span>SPEED</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: ${parsed.speed}%; background: ${highlight};"></div></div></div>
+                    <div class="stat-row"><span>ARMOR</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: ${parsed.armor}%; background: ${highlight};"></div></div></div>
+                    <div class="stat-row"><span>POWER</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: ${parsed.power}%; background: ${highlight};"></div></div></div>
+                    <div class="stat-row"><span>WEIGHT</span><div class="stat-bar-bg"><div class="stat-bar-fill" style="width: ${parsed.weight}%; background: ${highlight};"></div></div></div>
+                `;
+            }
+            
+            if (customCard) customCard.classList.remove('hidden');
+            document.getElementById('io-modal').classList.add('hidden');
+            
+            if ((gameMode === 'pvp' || isCoop) && !pvpP1Choice && !isNetworkGame) {
+                sfx.click(); pvpP1Choice = 'custom'; document.getElementById('bot-select-title').innerText = "P2: SELECT YOUR BOT";
+            } else { startGame('custom'); }
+        };
+        img.onerror = () => { throw new Error("SVG Build Failed"); };
+        img.src = URL.createObjectURL(blob);
+    }
+
+    function openExport() {
+        if (!lastForgedBotData) return;
+        const code = btoa(JSON.stringify(lastForgedBotData));
+        document.getElementById('io-title').innerText = "EXPORT BOT CODE";
+        document.getElementById('io-desc').innerText = "Copy this code to save your bot or share it with friends!";
+        const input = document.getElementById('io-input'); input.value = code; input.readOnly = true;
+        const btn = document.getElementById('io-action-btn'); btn.innerText = "COPY CODE";
+        btn.onclick = () => {
+            sfx.click(); input.select(); document.execCommand('copy');
+            try { navigator.clipboard.writeText(code); } catch(e){}
+            btn.innerText = "COPIED!"; setTimeout(() => { btn.innerText = "COPY CODE"; }, 2000);
+        };
+        document.getElementById('io-modal').classList.remove('hidden');
+    }
+
+    function openImport() {
+        document.getElementById('io-title').innerText = "LOAD SAVED BOT";
+        document.getElementById('io-desc').innerText = "Paste your previously saved Bot Code below to summon it!";
+        const input = document.getElementById('io-input'); input.value = ""; input.readOnly = false;
+        const btn = document.getElementById('io-action-btn'); btn.innerText = "LOAD BOT";
+        btn.onclick = () => { sfx.click(); loadBotFromCode(); };
+        document.getElementById('io-modal').classList.remove('hidden');
+    }
+
+    function loadBotFromCode() {
+        const btn = document.getElementById('io-action-btn');
+        try {
+            const code = document.getElementById('io-input').value.trim();
+            if (!code) return;
+            const parsed = JSON.parse(atob(code));
+            if (parsed && parsed.svgContent && parsed.baseType) {
+                btn.innerText = "LOADING..."; buildCustomBot(parsed);
+            } else { throw new Error("Invalid format"); }
+        } catch(e) {
+            console.error("Failed to load bot code:", e);
+            btn.innerText = "INVALID CODE"; setTimeout(() => { btn.innerText = "LOAD BOT"; }, 2000);
+        }
+    }
+
+    const hazards = [
+        { x: 150, y: 150, radius: 45, angle: 0, active: false, timer: Math.random() * 3 + 1, spinSpeed: 0 },
+        { x: 1024 - 150, y: 150, radius: 45, angle: 0, active: false, timer: Math.random() * 3 + 1, spinSpeed: 0 },
+        { x: 150, y: 768 - 150, radius: 45, angle: 0, active: false, timer: Math.random() * 3 + 1, spinSpeed: 0 },
+        { x: 1024 - 150, y: 768 - 150, radius: 45, angle: 0, active: false, timer: Math.random() * 3 + 1, spinSpeed: 0 }
+    ];
+
+    let powerups = [];
+    let powerupSpawnTimer = 5;
+
+    class Powerup {
+        constructor(x, y, type) { this.x = x; this.y = y; this.type = type; this.radius = 18; this.bob = Math.random() * Math.PI * 2; this.life = 15; }
+        update(dt) { this.bob += dt * 4; this.life -= dt; return this.life > 0; }
+        draw(ctx) {
+            ctx.save(); ctx.translate(this.x, this.y + Math.sin(this.bob) * 6);
+            if (this.life < 3 && Math.floor(this.life * 10) % 2 === 0) ctx.globalAlpha = 0.3;
+            ctx.shadowBlur = 15;
+            if (this.type === 'health') { ctx.shadowColor = '#ef4444'; ctx.fillStyle = '#ef4444'; ctx.fillRect(-8, -3, 16, 6); ctx.fillRect(-3, -8, 6, 16); } 
+            else if (this.type === 'speed') { ctx.shadowColor = '#06b6d4'; ctx.strokeStyle = '#06b6d4'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-6, -10); ctx.lineTo(6, 0); ctx.lineTo(-6, 10); ctx.moveTo(-14, -10); ctx.lineTo(-2, 0); ctx.lineTo(-14, 10); ctx.stroke(); } 
+            else if (this.type === 'shield') { ctx.shadowColor = '#3b82f6'; ctx.fillStyle = '#3b82f6'; ctx.beginPath(); for(let i=0; i<6; i++) { let a = (i/6) * Math.PI*2 - Math.PI/2; if(i===0) ctx.moveTo(Math.cos(a)*12, Math.sin(a)*12); else ctx.lineTo(Math.cos(a)*12, Math.sin(a)*12); } ctx.closePath(); ctx.fill(); } 
+            else if (this.type === 'cooldown') { ctx.shadowColor = '#eab308'; ctx.fillStyle = '#eab308'; ctx.beginPath(); ctx.moveTo(4, -14); ctx.lineTo(-8, 2); ctx.lineTo(-2, 2); ctx.lineTo(-4, 14); ctx.lineTo(8, -2); ctx.lineTo(2, -2); ctx.closePath(); ctx.fill(); }
+            ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+        }
+    }
+
+    class Particle {
+        constructor(x, y, color, speed, size) { this.x = x; this.y = y; this.vx = (Math.random() - 0.5) * speed; this.vy = (Math.random() - 0.5) * speed; this.life = 1.0; this.decay = Math.random() * 0.02 + 0.02; this.color = color; this.size = size; }
+        update(dt) { this.x += this.vx * dt; this.y += this.vy * dt; this.life -= this.decay * dt * 60; return this.life > 0; }
+        draw(ctx) { ctx.globalAlpha = Math.max(0, this.life); ctx.fillStyle = this.color; ctx.beginPath(); ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2); ctx.fill(); ctx.globalAlpha = 1.0; }
+    }
+
+    function spawnFire(x, y, z, angle) {
+        let colors = ['#ff4500', '#ff8800', '#ffcc00', '#555555'];
+        for(let i=0; i<3; i++) {
+            let pAngle = angle + (Math.random() - 0.5) * 0.5;
+            let speed = Math.random() * 200 + 100;
+            let p = new Particle(x, y - z, colors[Math.floor(Math.random()*colors.length)], 0, Math.random() * 10 + 5);
+            p.vx = Math.cos(pAngle) * speed; p.vy = Math.sin(pAngle) * speed; p.decay = Math.random() * 0.04 + 0.03; particles.push(p);
+        }
+    }
+
+    class Scrap {
+        constructor(x, y, z, botType, isSignature, color, highlight) {
+            this.x = x; this.y = y; this.z = z + 20; 
+            let angle = Math.random() * Math.PI * 2; let force = Math.random() * 800 + 400; 
+            this.vx = Math.cos(angle) * force; this.vy = Math.sin(angle) * force; this.vz = Math.random() * 500 + 300;
+            this.spinAngle = Math.random() * Math.PI * 2; this.spinSpeed = (Math.random() - 0.5) * 30; 
+            this.botType = botType; this.isSignature = isSignature; this.color = color; this.highlight = highlight;
+            this.life = Math.random() * 10 + 10; this.maxLife = this.life; this.radius = isSignature ? 15 : (Math.random() * 8 + 5);
+
+            if (!this.isSignature) {
+                this.pts = []; let sides = Math.floor(Math.random() * 3) + 3; 
+                for(let i=0; i<sides; i++) { let a = (i/sides) * Math.PI * 2; let r = this.radius * (Math.random() * 0.4 + 0.6); this.pts.push({x: Math.cos(a)*r, y: Math.sin(a)*r}); }
+            }
+        }
+        
+        update(dt, bots) {
+            this.life -= dt; if (this.life <= 0) return false;
+            this.vz -= 2500 * dt; this.z += this.vz * dt;
+            if (this.z < 0) { this.z = 0; if (this.vz < -100) { this.vz *= -0.5; this.spinSpeed *= 0.6; } else { this.vz = 0; } }
+
+            let friction = this.z > 0 ? 0.99 : 0.85;
+            this.vx *= Math.pow(friction, dt * 60); this.vy *= Math.pow(friction, dt * 60); this.spinSpeed *= Math.pow(friction, dt * 60);
+            this.x += this.vx * dt; this.y += this.vy * dt; this.spinAngle += this.spinSpeed * dt;
+
+            const padding = this.radius + 10;
+            if (this.x < padding) { this.x = padding; this.vx *= -0.5; } if (this.x > canvas.width - padding) { this.x = canvas.width - padding; this.vx *= -0.5; }
+            if (this.y < padding) { this.y = padding; this.vy *= -0.5; } if (this.y > canvas.height - padding) { this.y = canvas.height - padding; this.vy *= -0.5; }
+
+            bots.forEach(bot => {
+                if (bot.hp > 0 && Math.abs(bot.z - this.z) < 30) {
+                    let dx = this.x - bot.x; let dy = this.y - bot.y; let dist = Math.hypot(dx, dy); let minDist = this.radius + bot.radius;
+                    if (dist < minDist) {
+                        let overlap = minDist - dist; let nx = dx / dist; let ny = dy / dist;
+                        this.x += nx * overlap; this.y += ny * overlap;
+                        let dot = bot.vx * nx + bot.vy * ny;
+                        if (dot > 0) { this.vx += nx * dot * 0.8; this.vy += ny * dot * 0.8; this.spinSpeed += (Math.random() - 0.5) * dot * 0.05; this.life -= dt * 2; if (Math.random() < 0.1) spawnSparks(this.x, this.y, this.z, '#aaaaaa', 1); }
+                    }
+                }
+            });
+            return true;
+        }
+        
+        draw(ctx) {
+            ctx.save(); ctx.globalAlpha = Math.min(1.0, this.life);
+            ctx.save(); ctx.translate(this.x, this.y); let shadowScale = Math.max(0.1, 1 - (this.z / 500)); ctx.scale(shadowScale, shadowScale); ctx.fillStyle = 'rgba(0, 0, 0, 0.4)'; ctx.beginPath(); ctx.arc(0, 0, this.radius, 0, Math.PI*2); ctx.fill(); ctx.restore();
+            ctx.translate(this.x, this.y - this.z); ctx.rotate(this.spinAngle); let scale = 1 + (this.z / 1500); ctx.scale(scale, scale);
+
+            if (!this.isSignature) {
+                let grad = ctx.createLinearGradient(-this.radius, -this.radius, this.radius, this.radius); grad.addColorStop(0, '#555'); grad.addColorStop(1, '#222'); ctx.fillStyle = grad; ctx.strokeStyle = '#111'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(this.pts[0].x, this.pts[0].y); for(let i=1; i<this.pts.length; i++) ctx.lineTo(this.pts[i].x, this.pts[i].y); ctx.closePath(); ctx.fill(); ctx.stroke();
+                ctx.fillStyle = this.highlight; ctx.fillRect(-2, -2, 4, 4);
+            } else {
+                if (this.botType === 'spinner') { let bladeGrad = ctx.createLinearGradient(-10, -10, 10, 10); bladeGrad.addColorStop(0, '#ccc'); bladeGrad.addColorStop(1, '#444'); ctx.fillStyle = bladeGrad; ctx.strokeStyle = '#222'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-10, -5); ctx.lineTo(25, -8); ctx.lineTo(21, 8); ctx.lineTo(-10, 5); ctx.closePath(); ctx.fill(); ctx.stroke(); } 
+                else if (this.botType === 'flipper') { let grad = ctx.createLinearGradient(-15, -15, 15, 15); grad.addColorStop(0, this.highlight); grad.addColorStop(1, '#fff'); ctx.fillStyle = grad; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-15, -15); ctx.lineTo(15, -10); ctx.lineTo(15, 10); ctx.lineTo(-15, 15); ctx.closePath(); ctx.fill(); ctx.stroke(); } 
+                else if (this.botType === 'grappler') { ctx.fillStyle = '#333'; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.fillRect(-10, -8, 20, 16); ctx.strokeRect(-10, -8, 20, 16); ctx.fillStyle = this.highlight; ctx.beginPath(); ctx.arc(-5, 0, 4, 0, Math.PI*2); ctx.fill(); } 
+                else if (this.botType === 'hammer') { let hammerGrad = ctx.createLinearGradient(0, -15, 0, 15); hammerGrad.addColorStop(0, '#777'); hammerGrad.addColorStop(0.5, '#eee'); hammerGrad.addColorStop(1, '#777'); ctx.fillStyle = hammerGrad; ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-8, -15); ctx.lineTo(8, -15); ctx.lineTo(8, 15); ctx.lineTo(-8, 15); ctx.closePath(); ctx.fill(); ctx.stroke(); } 
+                else if (this.botType === 'zapper') { ctx.fillStyle = '#333'; ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.fillRect(-10, -3, 20, 6); ctx.strokeRect(-10, -3, 20, 6); ctx.fillStyle = this.highlight; ctx.beginPath(); ctx.arc(10, 0, 3, 0, Math.PI*2); ctx.fill(); } 
+                else if (this.botType === 'scorcher') { let tankGrad = ctx.createLinearGradient(0, -10, 0, 10); tankGrad.addColorStop(0, '#991b1b'); tankGrad.addColorStop(0.5, '#ef4444'); tankGrad.addColorStop(1, '#991b1b'); ctx.fillStyle = tankGrad; ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(-8, -12, 16, 24, 4); ctx.fill(); ctx.stroke(); } 
+                else if (this.botType === 'sawblade') { let bladeGrad = ctx.createLinearGradient(-12, -12, 12, 12); bladeGrad.addColorStop(0, '#eee'); bladeGrad.addColorStop(1, '#999'); ctx.fillStyle = bladeGrad; ctx.strokeStyle = '#222'; ctx.lineWidth = 1; ctx.beginPath(); for(let i=0; i<8; i++) { let a = (i/8) * Math.PI*2; let a2 = ((i+0.5)/8) * Math.PI*2; ctx.lineTo(Math.cos(a)*12, Math.sin(a)*12); ctx.lineTo(Math.cos(a2)*9, Math.sin(a2)*9); } ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = this.highlight; ctx.beginPath(); ctx.arc(0, 0, 3, 0, Math.PI*2); ctx.fill(); }
+            }
+            ctx.restore();
+        }
+    }
+
+    class Bot {
+        constructor(x, y, typeId, playerId, team, isBoss = false) {
+            const config = botTypes[typeId]; this.id = botIdCounter++; this.type = config.baseType || typeId; 
+            this.playerId = playerId; 
+            if (this.playerId === 1) this.name = `P1 ${config.name}`; else if (this.playerId === 2) this.name = `P2 ${config.name}`; else this.name = `CPU ${config.name}`;
+
+            this.x = x; this.y = y; this.vx = 0; this.vy = 0; this.angle = team === 0 ? -Math.PI/2 : Math.PI/2; 
+            this.z = 0; this.vz = 0; this.justDropped = false; this.radius = config.radius; this.mass = config.mass; this.accel = config.accel; this.maxSpeed = config.maxSpeed; this.turnSpeed = config.turnSpeed;
+            this.maxHp = config.hp; this.hp = this.maxHp; this.isDead = false; this.color = config.color; this.highlight = config.highlight; this.team = team; this.teamColor = team === 0 ? '#00ffff' : '#ff0044';
+            this.abilityTimer = 0; this.charge = 1.0; this.lastPower = 1.0; this.config = config; this.speedTimer = 0; this.shieldTimer = 0; this.bankedAbilities = 0; this.spinAngle = 0; this.grappleTarget = null; this.zapTarget = null; this.uiElems = null; 
+            this.isGrappled = false; this.isBoss = isBoss; this.scaleMult = 1.0; this.isCustomBot = config.isCustom || false; this.powerMult = config.powerMult || 1.0;
+
+            if (this.isBoss) { this.name = "BOSS " + config.name; this.scaleMult = 2.0; this.radius = config.radius * this.scaleMult; this.mass = config.mass * 4.0; this.maxHp = config.hp * 6.0; this.hp = this.maxHp; }
+        }
+        
+        update(dt, inputs) {
+            if (this.abilityTimer > 0) this.abilityTimer -= dt * 1000; else this.abilityTimer = 0;
+            let previousCharge = this.charge;
+            if (this.charge < 1.0) { this.charge = Math.min(1.0, this.charge + dt / (this.config.abilityCooldown / 1000)); }
+            if (this.charge === 1.0 && previousCharge < 1.0 && this.playerId > 0 && this.hp > 0) sfx.abilityReady();
+            
+            if (this.speedTimer > 0) this.speedTimer -= dt * 1000; else this.speedTimer = 0;
+            if (this.shieldTimer > 0) this.shieldTimer -= dt * 1000; else this.shieldTimer = 0;
+            if (this.grappleTarget && (this.abilityTimer === 0 || this.grappleTarget.hp <= 0)) this.grappleTarget = null;
+            
+            let isGrappled = false; let myGrappler = null;
+            for(let b of bots) { if (b.hp > 0 && b.type === 'grappler' && b.grappleTarget === this) { isGrappled = true; myGrappler = b; break; } }
+            this.isGrappled = isGrappled;
+            if (this.isGrappled && this.type === 'spinner') this.abilityTimer = 0; 
+
+            const GRAVITY = 2500; this.vz -= GRAVITY * dt; this.z += this.vz * dt;
+            if (this.z < 0) {
+                if (this.vz < -300) {
+                    cameraShake = Math.max(cameraShake, Math.min(20, -this.vz / 100)); spawnSparks(this.x, this.y, 0, '#aaaaaa', 10);
+                    if (this.justDropped) { this.justDropped = false; cameraShake = 25; spawnSparks(this.x, this.y, 0, '#eab308', 50); if(sfx.ctx) sfx.explosion(); } 
+                    else { let fallDmg = Math.abs(this.vz) * 0.025; if (fallDmg > 5) { this.takeDamage(fallDmg); if(sfx.ctx) sfx.heavyHit(); } }
+                }
+                this.z = 0; this.vz = 0;
+            }
+            let isAirborne = this.z > 0;
+            
+            if (!this.isGrappled || this.shieldTimer > 0) {
+                let speedMult = this.speedTimer > 0 ? 1.6 : 1.0; let accelMult = this.speedTimer > 0 ? 2.0 : 1.0; let encumberedMult = (this.type === 'grappler' && this.grappleTarget) ? 0.35 : 1.0; 
+                let currentTurnSpeed = this.turnSpeed * speedMult; 
+                if (this.type === 'spinner' && this.abilityTimer > 0) currentTurnSpeed *= 0.5; 
+                if (encumberedMult < 1.0) currentTurnSpeed *= 0.6; 
+                if (isAirborne) currentTurnSpeed *= 0.1;
+                
+                let ax = 0; let ay = 0; let isMoving = false;
+
+                if (inputs.useMouse) {
+                    let targetAngle = Math.atan2(inputs.mouseY - this.y, inputs.mouseX - this.x);
+                    let aDiff = angleDiffRad(this.angle, targetAngle);
+                    if (Math.abs(aDiff) > 0.05) this.angle += Math.sign(aDiff) * Math.min(Math.abs(aDiff), currentTurnSpeed * dt * 2.5); 
+                    else this.angle = targetAngle;
+                    
+                    if (!isAirborne) {
+                        let thrust = (inputs.w ? 1 : 0) - (inputs.s ? 1 : 0);
+                        let strafe = (inputs.d ? 1 : 0) - (inputs.a ? 1 : 0);
+                        if (thrust !== 0 || strafe !== 0) {
+                            let inputMag = Math.hypot(thrust, strafe); thrust /= inputMag; strafe /= inputMag;
+                            let currentAccel = this.accel * accelMult; if (encumberedMult < 1.0) currentAccel *= 0.5; 
+                            ax = (Math.cos(this.angle) * thrust + Math.cos(this.angle + Math.PI/2) * strafe) * currentAccel;
+                            ay = (Math.sin(this.angle) * thrust + Math.sin(this.angle + Math.PI/2) * strafe) * currentAccel;
+                            isMoving = true;
+                        }
+                    }
+                } else {
+                    if (inputs.a) this.angle -= currentTurnSpeed * dt; if (inputs.d) this.angle += currentTurnSpeed * dt;
+                    let thrust = 0; if (!isAirborne) { if (inputs.w) thrust = 1; if (inputs.s) thrust = -1; }
+                    let currentAccel = this.accel * accelMult; if (encumberedMult < 1.0) currentAccel *= 0.5; 
+                    ax = Math.cos(this.angle) * currentAccel * thrust; ay = Math.sin(this.angle) * currentAccel * thrust;
+                    if (Math.abs(thrust) > 0) isMoving = true;
+                }
+
+                if (this.type === 'spinner' && this.abilityTimer > 0) { ax *= 0.7; ay *= 0.7; }
+                this.vx += ax * dt; this.vy += ay * dt;
+                const friction = isAirborne ? 0.99 : 0.80; this.vx *= Math.pow(friction, dt * 60); this.vy *= Math.pow(friction, dt * 60);
+                
+                let currentMaxSpeed = this.maxSpeed * speedMult * encumberedMult; let speed = Math.hypot(this.vx, this.vy);
+                if (speed > currentMaxSpeed && !isAirborne) { this.vx = (this.vx / speed) * currentMaxSpeed; this.vy = (this.vy / speed) * currentMaxSpeed; }
+                if (isMoving && !isAirborne && Math.random() < 0.4) { spawnSparks(this.x - Math.cos(this.angle) * this.radius * 0.8, this.y - Math.sin(this.angle) * this.radius * 0.8, 0, this.teamColor, 1); }
+                this.x += this.vx * dt; this.y += this.vy * dt;
+            } else if (myGrappler) {
+                this.x = myGrappler.x + Math.cos(myGrappler.angle) * (myGrappler.radius + this.radius - 5); this.y = myGrappler.y + Math.sin(myGrappler.angle) * (myGrappler.radius + this.radius - 5);
+                this.z = myGrappler.z; this.vz = myGrappler.vz; this.vx = myGrappler.vx; this.vy = myGrappler.vy;
+            }
+            this.handleWalls();
+            
+            if (inputs.space && this.abilityTimer === 0 && (!this.isGrappled || this.shieldTimer > 0)) { 
+                let used = false; let powerUsed = 0;
+                if (this.charge >= 1.0) { powerUsed = 1.0; this.charge = 0; used = true; } 
+                else if (this.bankedAbilities > 0) { powerUsed = 1.0; this.bankedAbilities--; used = true; } 
+                else if (this.charge >= 0.33) { powerUsed = this.charge; this.charge = 0; used = true; }
+                if (used) this.useAbility(powerUsed);
+            }
+            
+            if (this.abilityTimer > 0 && (!this.isGrappled || this.shieldTimer > 0)) {
+                if (this.type === 'spinner') { let spinSpeed = 25; this.spinAngle += spinSpeed * dt; } 
+                else if (this.type === 'grappler') { if (this.grappleTarget) { let blocked = this.grappleTarget.takeDamage(25 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); spawnSparks(this.grappleTarget.x, this.grappleTarget.y, this.grappleTarget.z, '#ffaa00', 1); } } 
+                else if (this.type === 'scorcher') {
+                    if (Math.random() < 0.8) spawnFire(this.x + Math.cos(this.angle)*this.radius, this.y + Math.sin(this.angle)*this.radius, this.z, this.angle);
+                    bots.forEach(b => { if (b !== this && b.hp > 0 && b.team !== this.team) { let dist = Math.hypot(b.x - this.x, b.y - this.y); let angleDiff = Math.abs(angleDiffRad(this.angle, Math.atan2(b.y - this.y, b.x - this.x)));
+                        if (dist < this.radius + b.radius + (100 * this.scaleMult) && angleDiff < Math.PI / 3) { b.takeDamage(35 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); if (Math.random() < 0.1) spawnSparks(b.x, b.y, b.z, '#f97316', 1); }
+                    }});
+                } else if (this.type === 'zapper') {
+                    if (!this.zapTarget || this.zapTarget.hp <= 0 || Math.hypot(this.zapTarget.x - this.x, this.zapTarget.y - this.y) > (180 * this.scaleMult)) {
+                        let best = null; let bestD = 180 * this.scaleMult;
+                        bots.forEach(b => { if (b !== this && b.hp > 0 && b.team !== this.team) { let d = Math.hypot(b.x - this.x, b.y - this.y); let aDiff = Math.abs(angleDiffRad(this.angle, Math.atan2(b.y - this.y, b.x - this.x))); if (d < bestD && aDiff < Math.PI / 4) { bestD = d; best = b; } } });
+                        this.zapTarget = best;
+                    }
+                    if (this.zapTarget) {
+                        let blocked = this.zapTarget.takeDamage(45 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); 
+                        if (!blocked) { let slowFactor = Math.pow(0.80, dt * 60); this.zapTarget.vx *= slowFactor; this.zapTarget.vy *= slowFactor; }
+                        if (Math.random() < 0.2) spawnSparks(this.zapTarget.x, this.zapTarget.y, this.zapTarget.z, '#06b6d4', 2);
+                    }
+                } else if (this.type === 'sawblade') {
+                    this.spinAngle += 30 * dt; let hitTarget = false;
+                    bots.forEach(b => {
+                        if (b !== this && b.hp > 0 && b.team !== this.team) {
+                            let dist = Math.hypot(b.x - this.x, b.y - this.y); let angleDiff = Math.abs(angleDiffRad(this.angle, Math.atan2(b.y - this.y, b.x - this.x)));
+                            if (dist < this.radius + b.radius + (45 * this.scaleMult) && angleDiff < Math.PI / 4) {
+                                let blocked = b.takeDamage(50 * dt * (this.isBoss ? 2 : 1) * this.powerMult, this); hitTarget = true; if (Math.random() < 0.2) spawnSparks(b.x, b.y, b.z, '#ffffff', 2);
+                                if (!blocked) { let pullForce = (1200 / b.mass) * dt * (this.isBoss ? 2 : 1) * this.powerMult; b.vx -= Math.cos(this.angle) * pullForce; b.vy -= Math.sin(this.angle) * pullForce; }
+                            }
+                        }
+                    });
+                    if(hitTarget && Math.random() < 0.1 && sfx.ctx) sfx.playNoise(0.1, 0.4); 
+                }
+            } else { if (this.type === 'spinner' || this.type === 'sawblade') this.spinAngle += 10 * dt; this.zapTarget = null; }
+        }
+
+        handleWalls() {
+            const padding = this.radius + 10; let hit = false;
+            if (this.x < padding) { this.x = padding; this.vx *= -0.5; hit = true; }
+            if (this.x > canvas.width - padding) { this.x = canvas.width - padding; this.vx *= -0.5; hit = true; }
+            if (this.y < padding) { this.y = padding; this.vy *= -0.5; hit = true; }
+            if (this.y > canvas.height - padding) { this.y = canvas.height - padding; this.vy *= -0.5; hit = true; }
+            if (hit && Math.hypot(this.vx, this.vy) > 100) { spawnSparks(this.x, this.y, this.z, '#aaaaaa', 5); sfx.wallBump(); }
+        }
+
+        useAbility(power = 1.0) {
+            if (this.type === 'spinner' || this.type === 'grappler' || this.type === 'zapper' || this.type === 'scorcher' || this.type === 'sawblade') { this.abilityTimer = this.config.abilityDuration * power; } else { this.abilityTimer = this.config.abilityDuration; }
+            this.lastPower = power;
+            if (this.type === 'spinner' && sfx.ctx) sfx.abilitySpinner(); if (this.type === 'zapper' && sfx.ctx) sfx.abilityZapper(); if (this.type === 'scorcher' && sfx.ctx) sfx.abilityScorcher(); if (this.type === 'sawblade' && sfx.ctx) sfx.abilitySawblade();
+            
+            let target = null; let minDist = Infinity;
+            for (let b of bots) { 
+                if (b.team !== this.team && b.hp > 0) { 
+                    let d = Math.hypot(b.x - this.x, b.y - this.y); 
+                    let angleToEnemy = Math.atan2(b.y - this.y, b.x - this.x);
+                    let angleDiff = Math.abs(angleDiffRad(this.angle, angleToEnemy));
+                    if (angleDiff < Math.PI / 4 && d < minDist) { 
+                        minDist = d; target = b; 
+                    } 
+                } 
+            }
+            if (!target) return;
+            let dx = target.x - this.x; let dy = target.y - this.y; let dist = minDist; let angleToEnemy = Math.atan2(dy, dx); let angleDiff = Math.abs(angleDiffRad(this.angle, angleToEnemy)); let bossMult = this.isBoss ? 2.0 : 1.0;
+
+            if (this.type === 'flipper') { 
+                if (sfx.ctx) sfx.abilityFlipper(); 
+                if (dist < this.radius + target.radius + 20 && angleDiff < Math.PI / 4) { 
+                    cameraShake = 20 * power; let blocked = target.takeDamage(20 * power * bossMult * this.powerMult, this); 
+                    if (!blocked) { let pushPower = (1800 / target.mass) * power * bossMult * this.powerMult; target.vx += Math.cos(this.angle) * pushPower; target.vy += Math.sin(this.angle) * pushPower; target.vz = (1600 / target.mass) * power * this.powerMult; } else if (sfx.ctx) sfx.wallBump();
+                    spawnSparks(target.x, target.y, target.z, '#ffffff', Math.floor(30 * power)); 
+                } 
+            }
+            else if (this.type === 'hammer') { 
+                if (sfx.ctx) sfx.abilityHammer(); 
+                if (dist < this.radius + target.radius + 40 && angleDiff < Math.PI / 4) {
+                    setTimeout(() => { 
+                        if (target.hp <= 0) return; 
+                        cameraShake = 35 * power; let blocked = target.takeDamage(45 * power * bossMult * this.powerMult, this); 
+                        if (!blocked) { let pushPower = (2500 / target.mass) * power * bossMult * this.powerMult; target.vx += Math.cos(this.angle) * pushPower; target.vy += Math.sin(this.angle) * pushPower; target.vz = (-800 / target.mass) * power * this.powerMult; } else if (sfx.ctx) sfx.wallBump();
+                        spawnSparks(target.x, target.y, target.z, this.highlight, Math.floor(40 * power)); 
+                    }, 150);
+                }
+            } 
+            else if (this.type === 'grappler') { 
+                if (sfx.ctx) sfx.abilityGrappler(); 
+                if (dist < this.radius + target.radius + 15 && angleDiff < Math.PI / 4) { 
+                    if (target.shieldTimer <= 0) { this.grappleTarget = target; cameraShake = 5; spawnSparks(target.x, target.y, target.z, this.highlight, 10); } else { this.abilityTimer = 200; spawnSparks(target.x, target.y, target.z, '#3b82f6', 10); if (sfx.ctx) sfx.wallBump(); }
+                } else { this.abilityTimer = 200; } 
+            }
+        }
+        
+        generateScrap() { scraps.push(new Scrap(this.x, this.y, this.z, this.type, true, this.color, this.highlight)); let numGeneric = Math.floor(Math.random() * 3) + 4; for (let i = 0; i < numGeneric; i++) { scraps.push(new Scrap(this.x, this.y, this.z, this.type, false, this.color, this.highlight)); } }
+
+        takeDamage(amount, attacker = null) {
+            if (this.shieldTimer > 0) { if (Math.random() < 0.4) spawnSparks(this.x, this.y, this.z, '#3b82f6', 2); return true; }
+            this.hp -= amount; 
+            if (attacker && (attacker.playerId === 1 || (isCoop && attacker.playerId === 2))) { addScore(amount); if (amount >= 20) addScore(50); }
+            if (this.hp <= 0 && !this.isDead) { this.hp = 0; this.isDead = true; if (attacker && (attacker.playerId === 1 || (isCoop && attacker.playerId === 2))) addScore(500); if(sfx.ctx) sfx.explosion(); spawnSparks(this.x, this.y, this.z, '#ffaa00', 30); this.generateScrap(); } else if (this.hp < 0) { this.hp = 0; }
+            if (amount > 2 && sfx.ctx && !this.isDead) sfx.hit();
+            if (amount >= 20 && sfx.ctx && !this.isDead) sfx.speak("Major damage!");
+            if (this.uiElems) { this.uiElems.healthFill.style.backgroundColor = '#ffffff'; let origColor = this.team === 0 ? '#00ffaa' : '#ff3333'; setTimeout(() => { if(this.uiElems) this.uiElems.healthFill.style.backgroundColor = origColor; }, 100); }
+            return false;
+        }
+
+        draw(ctx) {
+            let drawStandardBody = !this.isCustomBot;
+
+            ctx.save(); 
+            ctx.save(); ctx.translate(this.x, this.y); let shadowScale = Math.max(0.2, 1 - (this.z / 1000)); ctx.scale(shadowScale * this.scaleMult, shadowScale * this.scaleMult); ctx.fillStyle = 'rgba(0, 0, 0, 0.5)'; ctx.filter = 'blur(4px)'; ctx.beginPath(); ctx.arc(0, 0, (this.radius/this.scaleMult) + 5, 0, Math.PI * 2); ctx.fill(); ctx.filter = 'none'; ctx.restore();
+            ctx.translate(this.x, this.y - this.z); ctx.rotate(this.angle); let popScale = 1 + (this.z / 1500); ctx.scale(popScale * this.scaleMult, popScale * this.scaleMult);
+            
+            let actualRadius = this.radius; this.radius = this.radius / this.scaleMult;
+
+            if (this.shieldTimer > 0) { ctx.beginPath(); ctx.arc(0, 0, this.radius + 15, 0, Math.PI*2); let shieldGrad = ctx.createRadialGradient(0,0,this.radius, 0,0,this.radius+15); shieldGrad.addColorStop(0, 'rgba(59, 130, 246, 0.1)'); shieldGrad.addColorStop(0.8, 'rgba(59, 130, 246, 0.4)'); shieldGrad.addColorStop(1, 'rgba(59, 130, 246, 0.8)'); ctx.fillStyle = shieldGrad; ctx.fill(); ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)'; ctx.lineWidth = 1; ctx.beginPath(); for(let i=0; i<6; i++) { let a = (i/6) * Math.PI*2; if(i===0) ctx.moveTo(Math.cos(a)*(this.radius+15), Math.sin(a)*(this.radius+15)); else ctx.lineTo(Math.cos(a)*(this.radius+15), Math.sin(a)*(this.radius+15)); } ctx.closePath(); ctx.stroke(); }
+            
+            let swingProg = 0; if (this.abilityTimer > 0) { let half = this.config.abilityDuration / 2; swingProg = this.abilityTimer > half ? 1 - ((this.abilityTimer - half) / half) : this.abilityTimer / half; }
+            let powerExt = swingProg * this.radius * 0.5 * this.lastPower;
+
+            if (this.isCustomBot && this.config.img) {
+                ctx.save();
+                if (this.type === 'spinner') { ctx.rotate(this.spinAngle); } else if (this.type === 'hammer') { ctx.rotate(swingProg * -0.4); ctx.translate(powerExt * 0.5, 0); } else if (this.type === 'flipper' || this.type === 'sawblade') { ctx.translate(powerExt, 0); } else if (this.type === 'grappler' && (this.abilityTimer > 0 || this.grappleTarget)) { ctx.translate((Math.random() - 0.5) * 4, (Math.random() - 0.5) * 4); }
+                ctx.drawImage(this.config.img, -this.radius*1.1, -this.radius*1.1, this.radius*2.2, this.radius*2.2); ctx.restore();
+            }
+
+            if (drawStandardBody) {
+                if (this.type === 'spinner') { ctx.fillStyle = '#1a1a24'; ctx.beginPath(); for(let i=0; i<8; i++) { let a = (i/8) * Math.PI*2 + Math.PI/8; if(i===0) ctx.moveTo(Math.cos(a)*this.radius*0.8, Math.sin(a)*this.radius*0.8); else ctx.lineTo(Math.cos(a)*this.radius*0.8, Math.sin(a)*this.radius*0.8); } ctx.closePath(); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.shadowBlur = 10; ctx.shadowColor = this.teamColor; ctx.fillStyle = this.teamColor; ctx.fillRect(this.radius*0.4, -15, 8, 30); ctx.fillRect(-this.radius*0.6, -10, 8, 20); ctx.shadowBlur = 0; let motorGrad = ctx.createRadialGradient(0,0,0, 0,0,this.radius*0.4); motorGrad.addColorStop(0, '#555'); motorGrad.addColorStop(1, '#111'); ctx.fillStyle = motorGrad; ctx.beginPath(); ctx.arc(0, 0, this.radius*0.4, 0, Math.PI*2); ctx.fill(); ctx.lineWidth = 4; ctx.strokeStyle = '#000'; ctx.stroke(); } 
+                else if (this.type === 'flipper') { ctx.fillStyle = '#111'; ctx.fillRect(-this.radius*0.7, -this.radius, this.radius*1.4, 18); ctx.fillRect(-this.radius*0.7, this.radius - 18, this.radius*1.4, 18); ctx.strokeStyle = '#333'; ctx.lineWidth = 2; for(let i = -this.radius*0.6; i < this.radius*0.6; i+=8) { ctx.beginPath(); ctx.moveTo(i, -this.radius); ctx.lineTo(i, -this.radius+18); ctx.stroke(); ctx.beginPath(); ctx.moveTo(i, this.radius-18); ctx.lineTo(i, this.radius); ctx.stroke(); } let bodyGrad = ctx.createLinearGradient(-this.radius, 0, this.radius, 0); bodyGrad.addColorStop(0, '#333'); bodyGrad.addColorStop(0.5, '#555'); bodyGrad.addColorStop(1, '#444'); ctx.fillStyle = bodyGrad; ctx.fillRect(-this.radius*0.8, -this.radius*0.6, this.radius*1.6, this.radius*1.2); ctx.strokeStyle = '#111'; ctx.lineWidth = 3; ctx.strokeRect(-this.radius*0.8, -this.radius*0.6, this.radius*1.6, this.radius*1.2); ctx.shadowBlur = 10; ctx.shadowColor = this.teamColor; ctx.fillStyle = this.teamColor; ctx.fillRect(-this.radius*0.5, -this.radius*0.5, this.radius, 4); ctx.fillRect(-this.radius*0.5, this.radius*0.5 - 4, this.radius, 4); ctx.shadowBlur = 0; } 
+                else if (this.type === 'grappler') { ctx.fillStyle = '#111'; ctx.fillRect(-this.radius*0.5, -this.radius*0.9, this.radius*1.2, 14); ctx.fillRect(-this.radius*0.5, this.radius*0.9 - 14, this.radius*1.2, 14); let bodyGrad = ctx.createLinearGradient(-this.radius, -this.radius, this.radius, this.radius); bodyGrad.addColorStop(0, '#2a2a35'); bodyGrad.addColorStop(1, '#111'); ctx.fillStyle = bodyGrad; ctx.beginPath(); ctx.moveTo(this.radius*0.6, 0); ctx.lineTo(0, -this.radius*0.8); ctx.lineTo(-this.radius*0.8, -this.radius*0.4); ctx.lineTo(-this.radius*0.6, 0); ctx.lineTo(-this.radius*0.8, this.radius*0.4); ctx.lineTo(0, this.radius*0.8); ctx.closePath(); ctx.fill(); ctx.strokeStyle = '#000'; ctx.lineWidth = 3; ctx.stroke(); ctx.shadowBlur = 15; ctx.shadowColor = this.teamColor; ctx.fillStyle = this.teamColor; ctx.beginPath(); ctx.arc(-this.radius*0.2, 0, 8, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0; } 
+                else if (this.type === 'hammer') { ctx.fillStyle = '#111'; ctx.fillRect(-this.radius*0.6, -this.radius*1.1, this.radius*1.2, 22); ctx.fillRect(-this.radius*0.6, this.radius*1.1 - 22, this.radius*1.2, 22); let bodyGrad = ctx.createLinearGradient(-this.radius, -this.radius, this.radius, this.radius); bodyGrad.addColorStop(0, '#555'); bodyGrad.addColorStop(1, '#222'); ctx.fillStyle = bodyGrad; ctx.beginPath(); ctx.moveTo(this.radius*0.5, -this.radius*0.8); ctx.lineTo(this.radius*0.5, this.radius*0.8); ctx.lineTo(-this.radius*0.8, this.radius*0.6); ctx.lineTo(-this.radius*0.8, -this.radius*0.6); ctx.closePath(); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke(); ctx.shadowBlur = 15; ctx.shadowColor = this.teamColor; ctx.fillStyle = this.teamColor; ctx.fillRect(-this.radius*0.4, -10, 15, 20); ctx.shadowBlur = 0; } 
+                else if (this.type === 'zapper') { ctx.fillStyle = '#111'; ctx.fillRect(-this.radius*0.5, -this.radius*0.8, this.radius, 12); ctx.fillRect(-this.radius*0.5, this.radius*0.8-12, this.radius, 12); let bodyGrad = ctx.createLinearGradient(-this.radius, -this.radius, this.radius, this.radius); bodyGrad.addColorStop(0, '#444'); bodyGrad.addColorStop(1, '#222'); ctx.fillStyle = bodyGrad; ctx.beginPath(); ctx.moveTo(this.radius*0.5, 0); ctx.lineTo(-this.radius*0.6, -this.radius*0.6); ctx.lineTo(-this.radius*0.4, 0); ctx.lineTo(-this.radius*0.6, this.radius*0.6); ctx.closePath(); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#111'; ctx.stroke(); ctx.fillStyle = '#333'; ctx.fillRect(this.radius*0.5, -12, 20, 4); ctx.fillRect(this.radius*0.5, 8, 20, 4); ctx.strokeRect(this.radius*0.5, -12, 20, 4); ctx.strokeRect(this.radius*0.5, 8, 20, 4); ctx.shadowBlur = 15; ctx.shadowColor = this.highlight; ctx.fillStyle = this.highlight; ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(this.radius*0.5+18, -10, 2, 0, Math.PI*2); ctx.fill(); ctx.beginPath(); ctx.arc(this.radius*0.5+18, 10, 2, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0; } 
+                else if (this.type === 'scorcher') { ctx.fillStyle = '#111'; ctx.fillRect(-this.radius*0.5, -this.radius, this.radius, 18); ctx.fillRect(-this.radius*0.5, this.radius-18, this.radius, 18); let bodyGrad = ctx.createLinearGradient(-this.radius, -this.radius, this.radius, this.radius); bodyGrad.addColorStop(0, '#555'); bodyGrad.addColorStop(1, '#2a2a2a'); ctx.fillStyle = bodyGrad; ctx.beginPath(); ctx.roundRect(-this.radius*0.6, -this.radius*0.6, this.radius*1.2, this.radius*1.2, 4); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#111'; ctx.stroke(); let tankGrad = ctx.createLinearGradient(0, -this.radius*0.5, 0, this.radius*0.5); tankGrad.addColorStop(0, '#991b1b'); tankGrad.addColorStop(0.5, '#ef4444'); tankGrad.addColorStop(1, '#991b1b'); ctx.fillStyle = tankGrad; ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.beginPath(); ctx.roundRect(-this.radius*0.8, -this.radius*0.5, 12, 15, 3); ctx.fill(); ctx.stroke(); ctx.beginPath(); ctx.roundRect(-this.radius*0.8, 3, 12, 15, 3); ctx.fill(); ctx.stroke(); ctx.fillStyle = '#222'; ctx.fillRect(this.radius*0.5, -6, 18, 12); ctx.strokeRect(this.radius*0.5, -6, 18, 12); ctx.fillStyle = this.highlight; ctx.fillRect(this.radius*0.5+18, -8, 5, 16); ctx.shadowBlur = 15; ctx.shadowColor = this.teamColor; ctx.fillStyle = this.teamColor; ctx.fillRect(-4, -6, 8, 12); ctx.shadowBlur = 0; } 
+                else if (this.type === 'sawblade') { ctx.fillStyle = '#111'; ctx.fillRect(-this.radius*0.5, -this.radius*0.9, this.radius, 15); ctx.fillRect(-this.radius*0.5, this.radius*0.9-15, this.radius, 15); let bodyGrad = ctx.createLinearGradient(-this.radius, -this.radius, this.radius, this.radius); bodyGrad.addColorStop(0, '#333'); bodyGrad.addColorStop(1, '#111'); ctx.fillStyle = bodyGrad; ctx.beginPath(); ctx.roundRect(-this.radius*0.6, -this.radius*0.7, this.radius*1.2, this.radius*1.4, 4); ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#111'; ctx.stroke(); ctx.shadowBlur = 10; ctx.shadowColor = this.teamColor; ctx.fillStyle = this.teamColor; ctx.fillRect(-this.radius*0.2, -6, 12, 12); ctx.shadowBlur = 0; }
+            }
+
+            // Weapon Rendering
+            ctx.save(); let isHolo = this.isCustomBot;
+            if (this.type === 'spinner') {
+                ctx.rotate(this.spinAngle);
+                if (isHolo) {
+                    if (this.abilityTimer > 0) { ctx.shadowBlur = 20; ctx.shadowColor = this.highlight; ctx.strokeStyle = this.highlight; ctx.lineWidth = 6; ctx.globalAlpha = 0.8; ctx.beginPath(); ctx.arc(0, 0, this.radius * 1.3, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = this.highlight; for (let i = 0; i < 4; i++) { let angleOffset = (i * Math.PI * 2) / 4; ctx.rotate(angleOffset); ctx.beginPath(); ctx.moveTo(this.radius * 1.3, -8); ctx.lineTo(this.radius * 1.8, -12); ctx.lineTo(this.radius * 1.5, 12); ctx.fill(); ctx.rotate(-angleOffset); } }
+                } else {
+                    if (this.abilityTimer > 0) { ctx.beginPath(); ctx.arc(0, 0, this.radius + 5, 0, Math.PI*2); let blurGrad = ctx.createRadialGradient(0,0,this.radius*0.7, 0,0,this.radius+5); blurGrad.addColorStop(0, 'rgba(255, 68, 0, 0)'); blurGrad.addColorStop(0.8, 'rgba(255, 68, 0, 0.4)'); blurGrad.addColorStop(1, 'rgba(255, 200, 0, 0.8)'); ctx.fillStyle = blurGrad; ctx.fill(); } 
+                    let bladeGrad = ctx.createLinearGradient(-this.radius, -this.radius, this.radius, this.radius); bladeGrad.addColorStop(0, '#ccc'); bladeGrad.addColorStop(0.5, '#777'); bladeGrad.addColorStop(1, '#444'); ctx.fillStyle = bladeGrad; ctx.strokeStyle = '#222'; ctx.lineWidth = 2; ctx.beginPath(); for (let i = 0; i < 3; i++) { let angleOffset = (i * Math.PI * 2) / 3; ctx.rotate(angleOffset); ctx.moveTo(this.radius*0.3, -5); ctx.lineTo(this.radius, -8); ctx.lineTo(this.radius*0.9, 8); ctx.lineTo(this.radius*0.3, 5); ctx.rotate(-angleOffset); } ctx.fill(); ctx.stroke();
+                }
+            } 
+            else if (this.type === 'flipper') {
+                let ext = this.abilityTimer > 0 ? 12 * this.lastPower : 0; ctx.translate(15 * this.lastPower, 0); let s = 1 + 0.1 * this.lastPower; ctx.scale(s, s);
+                if (isHolo) { if (this.abilityTimer > 0) { ctx.globalAlpha = 0.7; ctx.globalCompositeOperation = 'screen'; ctx.shadowBlur = 15; ctx.shadowColor = this.highlight; ctx.fillStyle = this.highlight; ctx.beginPath(); ctx.moveTo(this.radius*0.3, -this.radius*0.8); ctx.lineTo(this.radius*1.4, -this.radius*1.1); ctx.lineTo(this.radius*1.4, this.radius*1.1); ctx.lineTo(this.radius*0.3, this.radius*0.8); ctx.closePath(); ctx.fill(); }
+                } else { ctx.fillStyle = '#aaa'; ctx.fillRect(this.radius*0.2, -15, 20 + ext, 8); ctx.fillRect(this.radius*0.2, 7, 20 + ext, 8); ctx.strokeRect(this.radius*0.2, -15, 20 + ext, 8); ctx.strokeRect(this.radius*0.2, 7, 20 + ext, 8); let wedgeGrad = ctx.createLinearGradient(0, 0, this.radius, 0); wedgeGrad.addColorStop(0, this.highlight); wedgeGrad.addColorStop(1, '#fff'); ctx.fillStyle = wedgeGrad; ctx.beginPath(); ctx.moveTo(this.radius*0.4, -this.radius*0.7); ctx.lineTo(this.radius + 5, -this.radius*0.9); ctx.lineTo(this.radius + 5, this.radius*0.9); ctx.lineTo(this.radius*0.4, this.radius*0.7); ctx.closePath(); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#000'; ctx.stroke(); }
+            }
+            else if (this.type === 'grappler') {
+                let clampAngle = (this.abilityTimer > 0 || this.grappleTarget) ? Math.PI/5 : 0; 
+                if (isHolo) {
+                    if (this.abilityTimer > 0 || this.grappleTarget) { ctx.globalAlpha = 0.6; ctx.globalCompositeOperation = 'screen'; ctx.shadowBlur = 15; ctx.shadowColor = this.highlight; ctx.fillStyle = this.highlight; ctx.save(); ctx.translate(this.radius*0.2, -this.radius*0.5); ctx.rotate(clampAngle); ctx.fillRect(0, -4, this.radius*1.0, 8); ctx.restore(); ctx.save(); ctx.translate(this.radius*0.2, this.radius*0.5); ctx.rotate(-clampAngle); ctx.fillRect(0, -4, this.radius*1.0, 8); ctx.restore(); }
+                } else { ctx.save(); ctx.translate(this.radius*0.2, -this.radius*0.5); ctx.rotate(clampAngle); ctx.fillStyle = '#333'; ctx.fillRect(0, -8, this.radius*0.6, 16); ctx.strokeRect(0, -8, this.radius*0.6, 16); ctx.restore(); ctx.save(); ctx.translate(this.radius*0.2, this.radius*0.5); ctx.rotate(-clampAngle); ctx.fillStyle = '#333'; ctx.fillRect(0, -8, this.radius*0.6, 16); ctx.strokeRect(0, -8, this.radius*0.6, 16); ctx.restore(); }
+            }
+            else if (this.type === 'hammer') {
+                let armExt = swingProg * this.radius * 0.9 * this.lastPower; let hammerScale = 1.3 - (swingProg * 0.3 * this.lastPower); ctx.translate(this.radius*0.1 + armExt, 0); ctx.scale(hammerScale, hammerScale); 
+                if (isHolo) {
+                    if (this.abilityTimer > 0) { ctx.globalAlpha = 0.7; ctx.globalCompositeOperation = 'screen'; ctx.shadowBlur = 20; ctx.shadowColor = this.highlight; ctx.fillStyle = this.highlight; ctx.fillRect(-this.radius*0.3, -8, this.radius*0.6, 16); ctx.beginPath(); ctx.moveTo(this.radius*0.3, -this.radius*0.6); ctx.lineTo(this.radius*0.8, -this.radius*0.6); ctx.lineTo(this.radius*0.8, this.radius*0.6); ctx.lineTo(this.radius*0.3, this.radius*0.6); ctx.fill(); }
+                } else { ctx.fillStyle = '#333'; ctx.fillRect(-this.radius*0.5, -6, this.radius, 12); ctx.strokeRect(-this.radius*0.5, -6, this.radius, 12); let hammerGrad = ctx.createLinearGradient(0, -this.radius*0.6, 0, this.radius*0.6); hammerGrad.addColorStop(0, '#777'); hammerGrad.addColorStop(0.5, '#eee'); hammerGrad.addColorStop(1, '#777'); ctx.fillStyle = hammerGrad; ctx.beginPath(); ctx.moveTo(this.radius*0.2, -this.radius*0.6); ctx.lineTo(this.radius*0.5, -this.radius*0.6); ctx.lineTo(this.radius*0.5, this.radius*0.6); ctx.lineTo(this.radius*0.2, this.radius*0.6); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+            }
+            else if (this.type === 'sawblade') {
+                let fullArmExt = 0; if (this.abilityTimer > 0) { let prog = 1 - (this.abilityTimer / (this.config.abilityDuration * this.lastPower)); if (prog < 0.1) fullArmExt = (prog / 0.1) * 20; else if (prog > 0.9) fullArmExt = ((1 - prog) / 0.1) * 20; else fullArmExt = 20; fullArmExt *= this.lastPower; }
+                if (isHolo) {
+                    if (this.abilityTimer > 0) { ctx.save(); ctx.translate(30 + fullArmExt, 0); ctx.rotate(this.spinAngle); ctx.globalAlpha = 0.7; ctx.globalCompositeOperation = 'screen'; ctx.shadowBlur = 15; ctx.shadowColor = this.highlight; ctx.fillStyle = this.highlight; ctx.beginPath(); for(let i=0; i<12; i++) { let a = (i/12) * Math.PI*2; let a2 = ((i+0.5)/12) * Math.PI*2; ctx.lineTo(Math.cos(a)*24, Math.sin(a)*24); ctx.lineTo(Math.cos(a2)*12, Math.sin(a2)*12); } ctx.fill(); ctx.restore(); }
+                } else { ctx.fillStyle = '#222'; ctx.fillRect(10, -6, 20 + fullArmExt, 12); ctx.strokeRect(10, -6, 20 + fullArmExt, 12); ctx.save(); ctx.translate(30 + fullArmExt, 0); ctx.rotate(this.spinAngle); let bladeGrad = ctx.createLinearGradient(-15, -15, 15, 15); bladeGrad.addColorStop(0, '#eee'); bladeGrad.addColorStop(0.5, '#999'); bladeGrad.addColorStop(1, '#eee'); ctx.fillStyle = bladeGrad; ctx.beginPath(); for(let i=0; i<12; i++) { let a = (i/12) * Math.PI*2; let a2 = ((i+0.5)/12) * Math.PI*2; ctx.lineTo(Math.cos(a)*16, Math.sin(a)*16); ctx.lineTo(Math.cos(a2)*12, Math.sin(a2)*12); } ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.fillStyle = this.highlight; ctx.beginPath(); ctx.arc(0, 0, 4, 0, Math.PI*2); ctx.fill(); ctx.restore(); }
+            }
+            
+            ctx.restore();
+
+            if (this.type === 'zapper' && this.abilityTimer > 0) {
+                ctx.save(); let targetLocalX = 150; let targetLocalY = 0; if (this.zapTarget && this.zapTarget.hp > 0) { let dx = this.zapTarget.x - this.x; let dy = this.zapTarget.y - this.y; targetLocalX = dx * Math.cos(-this.angle) - dy * Math.sin(-this.angle); targetLocalY = dx * Math.sin(-this.angle) + dy * Math.cos(-this.angle); } 
+                ctx.shadowBlur = 10; ctx.shadowColor = this.highlight; ctx.strokeStyle = this.highlight; ctx.lineWidth = 2; for(let prongY of [-10, 10]) { ctx.beginPath(); ctx.moveTo(this.radius*0.5+18, prongY); let segments = 5; for(let i=1; i<=segments; i++) { let prog = i/segments; let curX = (this.radius*0.5+18) + (targetLocalX - (this.radius*0.5+18)) * prog; let curY = prongY + (targetLocalY - prongY) * prog; if (i < segments) { curX += (Math.random() - 0.5) * 30; curY += (Math.random() - 0.5) * 30; } ctx.lineTo(curX, curY); } ctx.stroke(); } ctx.restore();
+            }
+
+            if (this.playerId > 0 && this.hp > 0) { let bob = Math.sin(Date.now() / 150) * 4; let arrowDist = this.radius + 20 + bob; let arrowColor = this.playerId === 1 ? '#00ffff' : '#ff8800'; ctx.shadowBlur = 10; ctx.shadowColor = arrowColor; ctx.fillStyle = arrowColor; ctx.beginPath(); ctx.moveTo(arrowDist + 12, 0); ctx.lineTo(arrowDist, -8); ctx.lineTo(arrowDist + 3, 0); ctx.lineTo(arrowDist, 8); ctx.closePath(); ctx.fill(); ctx.shadowBlur = 0; }
+            this.radius = actualRadius; ctx.restore();
+        }
+    }
+
+    function angleDiffRad(a, b) { let diff = b - a; while (diff < -Math.PI) diff += Math.PI * 2; while (diff > Math.PI) diff -= Math.PI * 2; return diff; }
+    function spawnSparks(x, y, z, color, count) { for(let i=0; i<count; i++) { particles.push(new Particle(x, y - z, color, 400, Math.random() * 3 + 1)); } }
+
+    function checkCollisions(dt) {
+        for (let i = powerups.length - 1; i >= 0; i--) {
+            let p = powerups[i]; let grabbed = false;
+            for (let bot of bots) {
+                if (bot && bot.hp > 0 && bot.z < 30) { 
+                    let dist = Math.hypot(bot.x - p.x, bot.y - p.y);
+                    if (dist < bot.radius + p.radius) {
+                        grabbed = true; if(sfx.ctx) sfx.powerup(); spawnSparks(p.x, p.y, 0, '#ffffff', 15);
+                        if (bot.playerId === 1 || (isCoop && bot.playerId === 2)) addScore(50);
+                        if (p.type === 'health') { bot.hp = Math.min(bot.maxHp, bot.hp + 20); if(bot.uiElems) { bot.uiElems.healthFill.style.backgroundColor = '#ef4444'; let origColor = bot.team === 0 ? '#00ffaa' : '#ff3333'; setTimeout(() => { if(bot.uiElems) bot.uiElems.healthFill.style.backgroundColor = origColor; }, 300); } }
+                        if (p.type === 'speed') bot.speedTimer = 5000; if (p.type === 'shield') bot.shieldTimer = 5000; if (p.type === 'cooldown') bot.bankedAbilities++; break;
+                    }
+                }
+            }
+            if (grabbed) powerups.splice(i, 1);
+        }
+        for (let i = 0; i < bots.length; i++) {
+            for (let j = i + 1; j < bots.length; j++) {
+                let b1 = bots[i]; let b2 = bots[j]; if (b1.hp <= 0 || b2.hp <= 0 || Math.abs(b1.z - b2.z) > 50) continue;
+                let dx = b2.x - b1.x; let dy = b2.y - b1.y; let dist = Math.hypot(dx, dy); let minDist = b1.radius + b2.radius;
+                if (dist < minDist) {
+                    let overlap = minDist - dist; let nx = dx / dist; let ny = dy / dist; let isGrappled = (b1.type === 'grappler' && b1.grappleTarget === b2) || (b2.type === 'grappler' && b2.grappleTarget === b1);
+                    if (!isGrappled) {
+                        let totalMass = b1.mass + b2.mass; 
+                        b1.x -= nx * overlap * (b2.mass / totalMass); b1.y -= ny * overlap * (b2.mass / totalMass); b2.x += nx * overlap * (b1.mass / totalMass); b2.y += ny * overlap * (b1.mass / totalMass);
+                        let b1Vel = b1.vx * nx + b1.vy * ny; let b2Vel = b2.vx * nx + b2.vy * ny; let impulse = -(1.5) * (b1Vel - b2Vel) / (1/b1.mass + 1/b2.mass);
+                        b1.vx += (nx * impulse) / b1.mass; b1.vy += (ny * impulse) / b1.mass; b2.vx -= (nx * impulse) / b2.mass; b2.vy -= (ny * impulse) / b2.mass;
+                        if (b1.team !== b2.team) {
+                            if (b1.type === 'spinner' && b1.abilityTimer > 0 && b2.shieldTimer <= 0) { b2.vx += nx * 2500; b2.vy += ny * 2500; b2.vz += 250; b1.vx -= nx * 800; b1.vy -= ny * 800; cameraShake = 10; }
+                            if (b2.type === 'spinner' && b2.abilityTimer > 0 && b1.shieldTimer <= 0) { b1.vx -= nx * 2500; b1.vy -= ny * 2500; b1.vz += 250; b2.vx += nx * 800; b2.vy += ny * 800; cameraShake = 10; }
+                        }
+                    }
+                    if (b1.team !== b2.team) { handleWeaponDamage(b1, b2, nx, ny, dt); handleWeaponDamage(b2, b1, -nx, -ny, dt); }
+                }
+            }
+        }
+    }
+
+    function updateHazards(dt) {
+        hazards.forEach(h => {
+            h.timer -= dt; if (h.timer <= 0) { h.active = !h.active; if (h.active && sfx.ctx) sfx.hazardOn(); h.timer = h.active ? (Math.random() * 4 + 3) : (Math.random() * 4 + 2); }
+            h.spinSpeed += ((h.active ? 15 : 0) - h.spinSpeed) * dt * 2; h.angle += h.spinSpeed * dt;
+            bots.forEach(bot => {
+                if (bot && bot.hp > 0 && bot.z < 20) {
+                    let hdx = bot.x - h.x; let hdy = bot.y - h.y; let hdist = Math.hypot(hdx, hdy); let minDist = bot.radius + h.radius - 8;
+                    if (hdist < minDist) {
+                        let overlap = minDist - hdist; bot.x += (hdx/hdist) * overlap; bot.y += (hdy/hdist) * overlap; let nx = hdx/hdist, ny = hdy/hdist; let dot = bot.vx * nx + bot.vy * ny; if (dot < 0) { bot.vx -= 1.5 * dot * nx; bot.vy -= 1.5 * dot * ny; }
+                        if (h.spinSpeed > 5) { let blocked = bot.takeDamage(40 * (h.spinSpeed/15) * dt); if (!blocked && Math.random() < 0.2) { bot.vx += nx * 2000; bot.vy += ny * 2000; bot.vz += 500; if(sfx.ctx) sfx.heavyHit(); cameraShake = 8; spawnSparks(bot.x, bot.y, bot.z, '#ff3333', 15); } }
+                    }
+                }
+            });
+        });
+    }
+
+    function handleWeaponDamage(attacker, defender, nx, ny, dt) {
+        if (attacker.team === defender.team) return; if (attacker.type === 'spinner' && attacker.isGrappled) return;
+        let baseDmg = attacker.type === 'spinner' ? (attacker.abilityTimer > 0 ? 65 : 25) : 8; if (attacker.isBoss) baseDmg *= 2;
+        defender.takeDamage(baseDmg * dt * attacker.powerMult, attacker);
+        if (Math.random() < 0.05) spawnSparks(defender.x, defender.y, defender.z, attacker.type === 'spinner' ? defender.highlight : '#aaaaaa', 1);
+    }
+
+    function runAI(ai, dt) {
+        if (ai.name === "DUMMY") { ai.update(dt, { w: false, a: false, s: false, d: false, space: false }); return; }
+        let target = null; let minDist = Infinity;
+        for (let b of bots) { if (b.team !== ai.team && b.hp > 0) { let d = Math.hypot(b.x - ai.x, b.y - ai.y); if (d < minDist) { minDist = d; target = b; } } }
+        let inputs = { w: false, a: false, s: false, d: false, space: false };
+        if (target) {
+            let dx = target.x - ai.x; let dy = target.y - ai.y; let targetAngle = Math.atan2(dy, dx); let angleDiff = angleDiffRad(ai.angle, targetAngle);
+            if (angleDiff > 0.1) inputs.d = true; else if (angleDiff < -0.1) inputs.a = true;
+            if (Math.abs(angleDiff) < Math.PI / 1.5) inputs.w = true; else inputs.s = true;
+            let spaceReady = false; if (ai.abilityTimer === 0 && !ai.isGrappled) { if (ai.charge >= 0.33 || ai.bankedAbilities > 0) spaceReady = true; }
+            if (spaceReady) {
+                let range = (ai.type === 'flipper' || ai.type === 'grappler') ? 60 : (ai.type === 'hammer' ? 60 : (ai.type === 'zapper' ? 180 : (ai.type === 'scorcher' ? 120 : 70)));
+                range *= ai.scaleMult; let cone = ai.type === 'hammer' ? 0.6 : (ai.type === 'zapper' ? 0.5 : (ai.type === 'sawblade' ? 0.6 : 1.0));
+                if (minDist < ai.radius + target.radius + range && Math.abs(angleDiff) < cone) { inputs.space = true; }
+            }
+        }
+        ai.update(dt, inputs);
+    }
+
+    function updateHUD() {
+        let team0Alive = false; let team1Alive = false;
+        bots.forEach(bot => {
+            if (bot.hp > 0) { if (bot.team === 0) team0Alive = true; if (bot.team === 1) team1Alive = true; }
+            if (bot.uiElems) {
+                if (bot.hp <= 0 && bot.playerId === 0 && (gameMode === 'endless' || gameMode === 'tutorial')) bot.uiElems.container.classList.add('hidden');
+                else {
+                    bot.uiElems.healthFill.style.width = `${Math.max(0, (bot.hp / bot.maxHp) * 100)}%`;
+                    let readyColor = bot.team === 0 ? '#00aaff' : '#ff5555'; let isUsable = bot.charge >= 0.33; let chargingColor = isUsable ? '#f59e0b' : '#555';
+                    if (bot.bankedAbilities > 0 && bot.abilityTimer === 0) { bot.uiElems.cdFill.style.backgroundColor = '#eab308'; bot.uiElems.cdFill.style.width = '100%'; } else if (bot.abilityTimer > 0) { bot.uiElems.cdFill.style.backgroundColor = '#555'; bot.uiElems.cdFill.style.width = '0%'; } else { bot.uiElems.cdFill.style.backgroundColor = bot.charge >= 1.0 ? readyColor : chargingColor; bot.uiElems.cdFill.style.width = `${bot.charge * 100}%`; }
+                    bot.uiElems.bankText.innerText = bot.bankedAbilities > 0 ? '⚡'.repeat(bot.bankedAbilities) : '';
+                }
+            }
+        });
+        if (gameMode === 'tutorial') return; 
+        if (!team0Alive) endGame(false); 
+        else if (!team1Alive) { if (gameMode === 'endless') { endlessWave++; addScore(500); ui.waveDisplay.innerText = "WAVE " + endlessWave; let spawnCount = endlessWave > 10 ? 2 : 1; for(let i = 0; i < spawnCount; i++) spawnEndlessEnemy(i); buildHUD(); } else endGame(true); }
+    }
+
+    function applyCpuScaling(bot) { let scale = gameMode === 'endless' ? Math.min(1.5, 0.80 + (endlessWave * 0.05)) : 0.85; bot.config = { ...bot.config, abilityCooldown: bot.config.abilityCooldown * (gameMode === 'endless' ? Math.max(0.4, 1.20 - (endlessWave * 0.05)) : 1.15) }; bot.maxSpeed *= scale; bot.accel *= scale; bot.turnSpeed *= scale; }
+    function spawnEndlessEnemy(staggerIndex = 0) { let types = Object.keys(botTypes).filter(t => t !== 'custom'); let enemyType = types[Math.floor(Math.random() * types.length)]; if (sfx.ctx) setTimeout(() => sfx.dropWhistle(), staggerIndex * 600); let px = 150 + Math.random() * (canvas.width - 300); let py = 150 + Math.random() * (canvas.height - 300); let newBot = new Bot(px, py, enemyType, 0, 1); newBot.z = 2500 + (staggerIndex * 600); newBot.vz = -200; newBot.justDropped = true; applyCpuScaling(newBot); bots.push(newBot); }
+
+    function updateTutorial(dt) {
+        if (gameMode !== 'tutorial') return;
+        const textEl = document.getElementById('tutorial-text'); let p1 = bots.find(b => b.playerId === 1);
+        if (!p1) { endGame(false); return; }
+
+        if (tutorialPhase === 1) {
+            if (Math.hypot(p1.vx, p1.vy) > 20) tutorialProgress += dt;
+            if (tutorialProgress > 3) { tutorialPhase = 2; textEl.innerHTML = "PHASE 2: WEAPONS RECHARGE OVER TIME.<br>WATCH THE BAR BELOW YOUR HEALTH. DESTROY THE DUMMY!"; let validTypes = Object.keys(botTypes).filter(t => t !== 'custom'); let dummyType = validTypes[Math.floor(Math.random() * validTypes.length)]; tutorialBotRef = new Bot(canvas.width - 250, canvas.height/2, dummyType, 0, 1); tutorialBotRef.maxSpeed = 0; tutorialBotRef.accel = 0; tutorialBotRef.turnSpeed = 0; tutorialBotRef.name = "DUMMY"; tutorialBotRef.z = 2500; tutorialBotRef.vz = -200; tutorialBotRef.justDropped = true; bots.push(tutorialBotRef); buildHUD(); sfx.dropWhistle(); }
+        } else if (tutorialPhase === 2) {
+            if (tutorialBotRef && tutorialBotRef.hp <= 0) { tutorialPhase = 3; tutorialProgress = 0; textEl.innerHTML = "PHASE 3: GRAB A POWERUP!<br>RED=+20HP CYAN=SPEED BLUE=INVINCIBILITY YELLOW=INSTANT RECHARGE"; powerups.push(new Powerup(canvas.width/2 - 100, canvas.height/2, 'health')); powerups.push(new Powerup(canvas.width/2 + 100, canvas.height/2, 'speed')); powerups.push(new Powerup(canvas.width/2, canvas.height/2 - 100, 'shield')); powerups.push(new Powerup(canvas.width/2, canvas.height/2 + 100, 'cooldown')); }
+        } else if (tutorialPhase === 3) {
+            tutorialProgress += dt;
+            if (powerups.length < 4) { tutorialPhase = 3.5; tutorialProgress = 0; textEl.innerHTML = "NICE CATCH!<br>THE ENEMY DROPS IN 5 SECONDS..."; }
+        } else if (tutorialPhase === 3.5) {
+            tutorialProgress += dt;
+            if (tutorialProgress > 5) { tutorialPhase = 4; textEl.innerHTML = "PHASE 4: SCORING! (1 DMG = 1 PT, BIG HIT = 50 PTS, KILL = 500 PTS).<br>DEFEAT THE ENEMY!"; let validTypes = Object.keys(botTypes).filter(t => t !== 'custom'); let enemyType = validTypes[Math.floor(Math.random() * validTypes.length)]; tutorialBotRef = new Bot(canvas.width - 250, canvas.height/2, enemyType, 0, 1); tutorialBotRef.maxSpeed *= 0.4; tutorialBotRef.accel *= 0.4; tutorialBotRef.turnSpeed *= 0.5; tutorialBotRef.maxHp *= 0.5; tutorialBotRef.hp = tutorialBotRef.maxHp; tutorialBotRef.name = "NERFED CPU"; tutorialBotRef.z = 2500; tutorialBotRef.vz = -200; tutorialBotRef.justDropped = true; bots.push(tutorialBotRef); buildHUD(); sfx.dropWhistle(); }
+        } else if (tutorialPhase === 4) {
+            if (tutorialBotRef && tutorialBotRef.hp <= 0) { tutorialPhase = 5; tutorialProgress = 0; textEl.innerHTML = "TUTORIAL COMPLETE!<br>YOU ARE READY."; textEl.className = "absolute top-[15%] left-1/2 transform -translate-x-1/2 w-full text-center text-xl sm:text-3xl text-green-400 z-20 pointer-events-none animate-pulse"; sfx.winFanfare(); }
+        } else if (tutorialPhase === 5) {
+            tutorialProgress += dt; if (tutorialProgress > 4) { showMenu(); }
+        }
+    }
+
+    function startNetworkGame(role) {
+        if (!socket) { alert("Network connection failed!"); return; }
+        isNetworkGame = true;
+        networkRole = role;
+        gameMode = 'pvp';
+
+        if (role === 'host') {
+            let p1Type = pvpP1Choice || 'random';
+            if (p1Type === 'random') {
+                let types = Object.keys(botTypes).filter(t => t !== 'custom');
+                p1Type = types[Math.floor(Math.random() * types.length)];
+            }
+            pvpP1Choice = p1Type; 
+            startGame('random', true); 
+        } else {
+            // Joiner Launch - Skips setup and waits for Host data
+            sfx.init(); sfx.startBGM(); sfx.speak("Joined Network!"); 
+            gameState = 'PLAYING'; 
+            ui.menu.classList.add('hidden'); ui.hud.classList.remove('hidden'); ui.instructions.classList.remove('hidden'); ui.gameOver.classList.add('hidden');
+            bots = []; 
+            buildHUD();
+        }
+    }
+
+    function startGame(playerType, forceNetworkStart = false) {
+        if (!forceNetworkStart && (gameMode === 'pvp' || isCoop) && !pvpP1Choice && !isNetworkGame) {
+            let types = Object.keys(botTypes).filter(t => t !== 'custom'); pvpP1Choice = playerType === 'random' ? types[Math.floor(Math.random() * types.length)] : playerType;
+            sfx.click(); document.getElementById('bot-select-title').innerText = "P2: SELECT YOUR BOT"; return;
+        }
+
+        sfx.init(); sfx.startBGM(); sfx.speak("Fight!"); gameState = 'PLAYING'; ui.menu.classList.add('hidden'); ui.hud.classList.remove('hidden'); ui.instructions.classList.remove('hidden'); ui.gameOver.classList.add('hidden');
+        updateInstructionsDisplay();
+        
+        gameTime = 0; playerScore = 0; ui.battleTimer.innerText = "00:00"; if (ui.scoreDisplay) ui.scoreDisplay.innerText = "SCORE: 0";
+        bots = []; let types = Object.keys(botTypes).filter(t => t !== 'custom'); let padding = 150; 
+        
+        let p1Type = (gameMode === 'pvp' || isCoop) ? pvpP1Choice : playerType; if (p1Type === 'random') p1Type = types[Math.floor(Math.random() * types.length)];
+        let p2Type = playerType; if (p2Type === 'random') p2Type = types[Math.floor(Math.random() * types.length)];
+        let validEnemyTypes = types;
+        
+        bots.push(new Bot(padding, canvas.height/2 - (isCoop ? 50 : 0), p1Type, 1, 0, gameMode === 'betheboss'));
+        
+        if (gameMode === 'pvp') { bots.push(new Bot(canvas.width - padding, canvas.height/2, p2Type, 2, 1)); } else if (isCoop) { bots.push(new Bot(padding, canvas.height/2 + 50, p2Type, 2, 0, gameMode === 'betheboss')); }
+
+        if (gameMode === '1v1') { bots.push(new Bot(canvas.width - padding, canvas.height/2, validEnemyTypes[Math.floor(Math.random()*validEnemyTypes.length)], 0, 1)); }
+        else if (gameMode === '2v2') { if (!isCoop) bots.push(new Bot(padding, canvas.height/4, types[Math.floor(Math.random()*types.length)], 0, 0)); bots.push(new Bot(canvas.width - padding, canvas.height/4, types[Math.floor(Math.random()*types.length)], 0, 1)); bots.push(new Bot(canvas.width - padding, canvas.height*0.75, types[Math.floor(Math.random()*types.length)], 0, 1)); }
+        else if (gameMode === 'endless') { endlessWave = 1; ui.waveDisplay.innerText = "WAVE " + endlessWave; bots.push(new Bot(canvas.width - padding, canvas.height/2, validEnemyTypes[Math.floor(Math.random()*validEnemyTypes.length)], 0, 1)); }
+        else if (gameMode === 'boss') { if (!isCoop) bots.push(new Bot(padding, canvas.height/4, types[Math.floor(Math.random()*types.length)], 0, 0)); bots.push(new Bot(padding, canvas.height*0.75, types[Math.floor(Math.random()*types.length)], 0, 0)); bots.push(new Bot(padding + 150, canvas.height/3, types[Math.floor(Math.random()*types.length)], 0, 0)); if (!isCoop) bots.push(new Bot(padding + 150, canvas.height*0.66, types[Math.floor(Math.random()*types.length)], 0, 0)); bots.push(new Bot(canvas.width - padding, canvas.height/2, validEnemyTypes[Math.floor(Math.random()*validEnemyTypes.length)], 0, 1, true)); }
+        else if (gameMode === 'betheboss') { bots.push(new Bot(canvas.width - padding, canvas.height/5, types[Math.floor(Math.random()*types.length)], 0, 1)); bots.push(new Bot(canvas.width - padding, canvas.height*0.8, types[Math.floor(Math.random()*types.length)], 0, 1)); bots.push(new Bot(canvas.width - padding - 120, canvas.height/3, types[Math.floor(Math.random()*types.length)], 0, 1)); bots.push(new Bot(canvas.width - padding - 120, canvas.height*0.66, types[Math.floor(Math.random()*types.length)], 0, 1)); bots.push(new Bot(canvas.width - padding - 240, canvas.height/2, types[Math.floor(Math.random()*types.length)], 0, 1)); bots.push(new Bot(canvas.width - padding, canvas.height/2, types[Math.floor(Math.random()*types.length)], 0, 1)); }
+        else if (gameMode === 'tutorial') { tutorialPhase = 1; tutorialProgress = 0; tutorialBotRef = null; document.getElementById('exit-btn').classList.remove('hidden'); document.getElementById('tutorial-text').classList.remove('hidden'); document.getElementById('tutorial-text').innerText = `PHASE 1: DRIVE USING ${p1ControlScheme === 'arrows_shift' || p1ControlScheme === 'arrows_mouse' ? 'ARROWS' : 'W, A, S, D'}`; }
+        
+        bots.forEach(bot => { if (bot.playerId === 0) applyCpuScaling(bot); });
+        buildHUD(); particles = []; scraps = []; powerups = []; powerupSpawnTimer = 1.5; cameraShake = 0; for (let key in rawKeys) rawKeys[key] = false; mouseClicked = false;
+    }
+
+    function gameLoop(timestamp) {
+        if (!lastTime) lastTime = timestamp; let dt = (timestamp - lastTime) / 1000; lastTime = timestamp; if (dt > 0.1) dt = 0.1;
+        
+        if (gameState === 'PLAYING') {
+
+            // --- JOINER LOGIC (Client-Side State Mirror) ---
+            if (isNetworkGame && networkRole === 'joiner') {
+                if (socket) socket.emit('joinerInput', getPlayerInputs(p1ControlScheme)); 
+
+                if (joinerStateData) {
+                    if (joinerStateData.isGameOver) { endGame(joinerStateData.team0Won); joinerStateData = null; return; }
+
+                    ui.battleTimer.innerText = joinerStateData.timerText;
+                    cameraShake = joinerStateData.cameraShake;
+                    
+                    if (bots.length !== joinerStateData.bots.length) {
+                        bots = joinerStateData.bots.map(bData => {
+                            let b = new Bot(0, 0, bData.type, bData.playerId, bData.team);
+                            Object.assign(b, bData);
+                            return b;
+                        });
+                        buildHUD();
+                    } else {
+                        for(let i=0; i<bots.length; i++) {
+                            let localBot = bots[i];
+                            let remoteBot = joinerStateData.bots[i];
+                            Object.assign(localBot, remoteBot);
+                            if (localBot.uiElems) {
+                                localBot.uiElems.healthFill.style.width = `${Math.max(0, (localBot.hp / localBot.maxHp) * 100)}%`;
+                                localBot.uiElems.cdFill.style.width = `${localBot.charge * 100}%`;
+                            }
+                        }
+                    }
+                    
+                    for(let i=0; i<hazards.length; i++) {
+                        if(joinerStateData.hazards[i]) {
+                            hazards[i].active = joinerStateData.hazards[i].active;
+                            hazards[i].angle = joinerStateData.hazards[i].angle;
+                            hazards[i].spinSpeed = joinerStateData.hazards[i].spinSpeed;
+                        }
+                    }
+                    
+                    powerups = joinerStateData.powerups.map(pData => {
+                        let p = new Powerup(pData.x, pData.y, pData.type);
+                        p.bob = pData.bob;
+                        return p;
+                    });
+                    
+                    for (let i = particles.length - 1; i >= 0; i--) if (!particles[i].update(dt)) particles.splice(i, 1);
+                    for (let i = scraps.length - 1; i >= 0; i--) if (!scraps[i].update(dt, [])) scraps.splice(i, 1);
+                }
+            } 
+            // --- HOST / OFFLINE LOGIC (Server-Side Physics Authority) ---
+            else {
+                gameTime += dt; let mins = Math.floor(gameTime / 60).toString().padStart(2, '0'); let secs = Math.floor(gameTime % 60).toString().padStart(2, '0'); ui.battleTimer.innerText = `${mins}:${secs}`;
+                if (gameMode === 'endless') addScore(dt * 10);
+                
+                if (gameMode !== 'tutorial') { powerupSpawnTimer -= dt; if (powerupSpawnTimer <= 0) { let types = ['health', 'speed', 'shield', 'cooldown']; let type = types[Math.floor(Math.random() * types.length)]; let px = 100 + Math.random() * (canvas.width - 200); let py = 100 + Math.random() * (canvas.height - 200); powerups.push(new Powerup(px, py, type)); let timeFactor = gameMode === 'endless' ? Math.max(0, gameTime / 100) : Math.max(0, gameTime / 80); powerupSpawnTimer = Math.max(0.5, 4.0 - timeFactor) + Math.random() * 1.5; } }
+                for (let i = powerups.length - 1; i >= 0; i--) if (!powerups[i].update(dt)) powerups.splice(i, 1);
+                for (let i = scraps.length - 1; i >= 0; i--) if (!scraps[i].update(dt, bots)) scraps.splice(i, 1);
+                
+                bots.forEach(bot => { 
+                    if (bot.hp <= 0) return; 
+                    if (bot.playerId === 1) bot.update(dt, getPlayerInputs(p1ControlScheme)); 
+                    else if (bot.playerId === 2) {
+                        if (isNetworkGame && networkRole === 'host') bot.update(dt, remoteInputs);
+                        else bot.update(dt, getPlayerInputs(p2ControlScheme)); 
+                    } else runAI(bot, dt); 
+                });
+
+                checkCollisions(dt); updateHazards(dt); updateTutorial(dt); for (let i = particles.length - 1; i >= 0; i--) if (!particles[i].update(dt)) particles.splice(i, 1);
+                if (cameraShake > 0) cameraShake -= dt * 60; updateHUD();
+
+                if (isNetworkGame && networkRole === 'host' && socket) {
+                    let stateData = {
+                        isGameOver: false,
+                        timerText: ui.battleTimer.innerText,
+                        cameraShake: cameraShake,
+                        bots: bots.map(b => ({
+                            id: b.id, x: b.x, y: b.y, z: b.z, angle: b.angle, spinAngle: b.spinAngle,
+                            hp: b.hp, maxHp: b.maxHp, abilityTimer: b.abilityTimer, shieldTimer: b.shieldTimer,
+                            charge: b.charge, type: b.type, playerId: b.playerId, team: b.team, isDead: b.isDead,
+                            radius: b.radius, name: b.name, color: b.color, highlight: b.highlight
+                        })),
+                        hazards: hazards.map(h => ({ active: h.active, angle: h.angle, spinSpeed: h.spinSpeed })),
+                        powerups: powerups.map(p => ({ x: p.x, y: p.y, type: p.type, bob: p.bob }))
+                    };
+                    socket.emit('hostStateUpdate', stateData);
+                }
+            }
+        }
+        draw(); requestAnimationFrame(gameLoop);
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height); ctx.save(); if (cameraShake > 0) ctx.translate((Math.random() - 0.5) * cameraShake, (Math.random() - 0.5) * cameraShake);
+        ctx.strokeStyle = 'rgba(255,255,255,0.02)'; ctx.lineWidth = 1; ctx.beginPath(); for(let i=0; i<canvas.width; i+=50) { ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); } for(let j=0; j<canvas.height; j+=50) { ctx.moveTo(0, j); ctx.lineTo(canvas.width, j); } ctx.stroke();
+        ctx.lineWidth = 20; ctx.strokeStyle = '#222'; ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20); ctx.strokeStyle = '#ffbb00'; ctx.setLineDash([30, 30]); ctx.strokeRect(10, 10, canvas.width - 20, canvas.height - 20); ctx.setLineDash([]);
+        powerups.forEach(p => p.draw(ctx)); hazards.forEach(h => {
+            ctx.save(); ctx.translate(h.x, h.y); ctx.rotate(h.angle); ctx.fillStyle = '#444'; ctx.beginPath(); ctx.arc(0, 0, h.radius * 0.8, 0, Math.PI*2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#111'; ctx.stroke();
+            ctx.fillStyle = '#aaa'; ctx.beginPath(); for(let i=0; i<12; i++) { let a1 = (i/12) * Math.PI*2; let a2 = ((i+0.5)/12) * Math.PI*2; let a3 = ((i+1)/12) * Math.PI*2; ctx.moveTo(Math.cos(a1)*h.radius*0.8, Math.sin(a1)*h.radius*0.8); ctx.lineTo(Math.cos(a2)*h.radius, Math.sin(a2)*h.radius); ctx.lineTo(Math.cos(a3)*h.radius*0.8, Math.sin(a3)*h.radius*0.8); } ctx.fill(); ctx.stroke(); ctx.fillStyle = h.active ? '#ff1111' : '#331111'; ctx.beginPath(); ctx.arc(0, 0, 12, 0, Math.PI*2); ctx.fill();
+            if (h.active) { ctx.shadowBlur = 10; ctx.shadowColor = '#ff1111'; ctx.fillStyle = '#ffaaaa'; ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0; }
+            if (h.spinSpeed > 1) { ctx.rotate(-h.angle); ctx.strokeStyle = `rgba(255, 0, 0, ${Math.min(0.6, h.spinSpeed/15)})`; ctx.lineWidth = 4; ctx.setLineDash([10, 10]); ctx.beginPath(); ctx.arc(0, 0, h.radius + 15, 0, Math.PI*2); ctx.stroke(); } ctx.restore();
+        });
+        if (gameState === 'PLAYING' || gameState === 'GAMEOVER') { scraps.forEach(s => s.draw(ctx)); bots.forEach(bot => { if (bot.hp > 0) bot.draw(ctx); }); }
+        particles.forEach(p => p.draw(ctx)); ctx.restore();
+    }
+
+    function endGame(team0Won) {
+        gameState = 'GAMEOVER'; ui.gameOver.classList.remove('hidden'); ui.hud.classList.add('hidden'); ui.instructions.classList.add('hidden');
+        document.getElementById('exit-btn').classList.add('hidden'); document.getElementById('tutorial-text').classList.add('hidden');
+        for (let key in rawKeys) rawKeys[key] = false; mouseClicked = false;
+        document.getElementById('score-form').classList.add('hidden'); document.getElementById('score-success').classList.add('hidden');
+
+        if (isNetworkGame && networkRole === 'host' && socket) {
+            socket.emit('hostStateUpdate', { isGameOver: true, team0Won: team0Won });
+        }
+        
+        let botsDefeated = 0;
+        if (gameMode === 'endless') botsDefeated = endlessWave - 1; else if (gameMode === '1v1' && team0Won) botsDefeated = 1; else if (gameMode === '2v2' && team0Won) botsDefeated = 2; else if (gameMode === 'boss' && team0Won) botsDefeated = 1; else if (gameMode === 'betheboss' && team0Won) botsDefeated = 6; else if (gameMode === 'tutorial') botsDefeated = tutorialPhase >= 3 ? 1 : 0;
+        
+        if (gameMode === 'pvp') {
+            if (team0Won) { sfx.speak("Player 1 Wins!"); sfx.winFanfare(); ui.resTitle.innerText = "P1 WINS!"; ui.resTitle.className = "text-4xl sm:text-5xl md:text-6xl mb-4 sm:mb-6 text-center text-cyan-400"; ui.resDesc.innerText = `Player 1 utterly destroyed Player 2.`; cameraShake = 10; } 
+            else { sfx.speak("Player 2 Wins!"); sfx.winFanfare(); ui.resTitle.innerText = "P2 WINS!"; ui.resTitle.className = "text-4xl sm:text-5xl md:text-6xl mb-4 sm:mb-6 text-center text-red-500"; ui.resDesc.innerText = `Player 2 utterly destroyed Player 1.`; cameraShake = 10; }
+        } else {
+            if (team0Won) { 
+                if (gameMode === 'boss') sfx.speak("Epic Player Victory!"); else if (gameMode === 'betheboss') sfx.speak("Brutal Boss Win!"); else sfx.speak("Champion!"); 
+                sfx.winFanfare(); ui.resTitle.innerText = "VICTORY!"; ui.resTitle.className = "text-4xl sm:text-5xl md:text-6xl mb-4 sm:mb-6 text-center text-cyan-400"; ui.resDesc.innerHTML = `Match Time: ${ui.battleTimer.innerText} &nbsp;|&nbsp; Final Score: <span class="text-green-400">${Math.floor(playerScore)}</span>`; cameraShake = 10; 
+                if(gameMode !== 'tutorial') document.getElementById('score-form').classList.remove('hidden'); 
+            } 
+            else { 
+                if (gameMode === 'boss') sfx.speak("Brutal Boss Win!"); else if (gameMode === 'betheboss') sfx.speak("Epic Player Victory!"); else sfx.speak("Fah-tal-ih-tee!"); 
+                sfx.loseDirge(); ui.resTitle.innerText = "DESTROYED"; ui.resTitle.className = "text-4xl sm:text-5xl md:text-6xl mb-4 sm:mb-6 text-center text-red-600"; ui.resDesc.innerHTML = gameMode === 'endless' ? `Survived: ${ui.battleTimer.innerText} &nbsp;|&nbsp; Final Score: <span class="text-green-400">${Math.floor(playerScore)}</span>` : "Your team was torn to pieces."; cameraShake = 20; 
+                if ((gameMode === 'endless' && botsDefeated > 0) || gameMode !== 'endless') { if(gameMode !== 'tutorial') document.getElementById('score-form').classList.remove('hidden'); } 
+            }
+        }
+    }
+
+    function showMenu() { 
+        gameState = 'MENU'; ui.menu.classList.remove('hidden'); ui.gameOver.classList.add('hidden'); ui.hud.classList.add('hidden'); ui.instructions.classList.add('hidden'); 
+        document.getElementById('exit-btn').classList.add('hidden'); document.getElementById('tutorial-text').classList.add('hidden'); document.getElementById('tutorial-text').className = "hidden absolute top-[15%] left-1/2 transform -translate-x-1/2 w-full text-center text-xl sm:text-2xl md:text-3xl text-yellow-300 z-20 pointer-events-none transition-all duration-300";
+        tutorialPhase = 0; ctx.clearRect(0, 0, canvas.width, canvas.height); particles = []; scraps = []; 
+        document.getElementById('bot-select-title').innerText = (gameMode === 'pvp' || isCoop) ? "P1: SELECT YOUR BOT" : "SELECT YOUR BOT"; pvpP1Choice = null;
+        isNetworkGame = false; networkRole = null;
+    }
+
+    requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
