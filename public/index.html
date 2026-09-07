@@ -1795,7 +1795,7 @@
     function startNetworkGame(role) {
         if (!socket) { alert("Network connection failed!"); return; }
         
-	setMode('pvp');
+	setMode('pvp');	
 	isNetworkGame = true; networkRole = role;
         document.getElementById('lobby-modal').classList.remove('hidden');
         
@@ -1845,6 +1845,24 @@
         isNetworkGame = false; networkRole = null; currentRoom = '';
         document.getElementById('lobby-modal').classList.add('hidden');
     }
+
+function buildHUD() {
+    ui.team0Hud.innerHTML = ''; ui.team1Hud.innerHTML = '';
+    if (gameMode === 'endless') { ui.vsText.classList.add('hidden'); ui.waveDisplay.classList.remove('hidden'); } 
+    else if (gameMode === 'tutorial') { ui.vsText.classList.add('hidden'); ui.waveDisplay.classList.add('hidden'); }
+    else { ui.vsText.classList.remove('hidden'); ui.waveDisplay.classList.add('hidden'); }
+    
+    if (gameMode === 'pvp' || gameMode === 'tutorial') ui.scoreDisplay.classList.add('hidden'); else ui.scoreDisplay.classList.remove('hidden');
+
+    bots.forEach(bot => {
+        if (bot.hp <= 0 && bot.playerId === 0 && (gameMode === 'endless' || gameMode === 'tutorial')) return;
+        let container = document.createElement('div'); container.className = 'bot-hud';
+        let nameClass = bot.team === 0 ? 'text-cyan-400' : 'text-red-500 team-2-name';
+        container.innerHTML = `<div class="player-name ${nameClass}">${bot.name} <span id="bank-${bot.id}" class="text-yellow-400 ml-1"></span></div><div class="health-bar-bg"><div class="health-bar-fill ${bot.team === 0 ? 'team-1-fill' : 'team-2-fill'}" id="health-${bot.id}"></div></div><div class="ability-cd ${bot.team === 0 ? 'team-1-cd' : 'team-2-cd'}" id="cd-${bot.id}"></div>`;
+        if (bot.team === 0) ui.team0Hud.appendChild(container); else ui.team1Hud.appendChild(container);
+        bot.uiElems = { container: container, healthFill: container.querySelector(`#health-${bot.id}`), cdFill: container.querySelector(`#cd-${bot.id}`), bankText: container.querySelector(`#bank-${bot.id}`) };
+    });
+}
 
     function startGame(playerType, forceNetworkStart = false) {
         if (!forceNetworkStart && (gameMode === 'pvp' || isCoop) && !pvpP1Choice && !isNetworkGame) {
