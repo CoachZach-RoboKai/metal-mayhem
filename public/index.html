@@ -1794,7 +1794,9 @@
 
     function startNetworkGame(role) {
         if (!socket) { alert("Network connection failed!"); return; }
-        isNetworkGame = true; networkRole = role;
+        
+	setMode('pvp');
+	isNetworkGame = true; networkRole = role;
         document.getElementById('lobby-modal').classList.remove('hidden');
         
         if (role === 'host') {
